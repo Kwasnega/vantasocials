@@ -1,0 +1,27 @@
+{
+  "name": "vanta",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "verify:phase2i": "node scripts/phase2i-verification.mjs",
+    "verify:reliablesmm": "node scripts/reliablesmm-r5-mocked-tests.mjs",
+    "verify:pricing": "node scripts/pricing-verification.mjs",
+    "verify:auth": "node scripts/auth-verification.mjs",
+    "verify:wallet": "node scripts/wallet-verification.mjs",
+    "reliablesmm:r4:test": "node scripts/reliablesmm-r4-request.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
+    "@types/node": "22.10.2",
+    "@types/react": "19.0.2",
+    "@types/react-dom": "19.0.2",
+    "next": "15.1.2",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "typescript": "5.7.2"
+  }
+}

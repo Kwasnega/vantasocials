@@ -1,0 +1,3 @@
+import { requireAdmin } from "../../../lib/admin/auth";
+
+export default async function AdminPlatformsPage() { const { admin } = await requireAdmin(); if (!admin) return null; const db = (await import("../../../lib/supabase/server")).createSupabaseAdminClient(); const { data: platforms } = await db.from("platforms").select("slug,name,active,description").order("name"); return <><header className="dashboard-header"><p className="dashboard-kicker">CATALOG</p><h1>Platforms.</h1></header><div className="dashboard-grid">{(platforms ?? []).map((platform) => <article className="dashboard-card" key={platform.slug}><strong>{platform.name}</strong><span>{platform.active ? "Active" : "Inactive"}</span><small>{platform.description}</small></article>)}</div></> }

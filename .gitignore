@@ -1,0 +1,7 @@
+node_modules/
+.npm-cache/
+.next/
+dev-server.log
+.env.local
+.env.*.local
+!.env.example

@@ -1,0 +1,3 @@
+import { requireAdmin } from "../../../lib/admin/auth";
+
+export default async function AdminProvidersPage() { const { admin } = await requireAdmin(); if (!admin) return null; return <><header className="dashboard-header"><p className="dashboard-kicker">INTEGRATIONS</p><h1>Providers.</h1></header><div className="dashboard-grid"><article className="dashboard-card"><strong>PanelFollows</strong><span>Configured · fulfillment disabled</span><small>No provider write operations are exposed here.</small></article><article className="dashboard-card"><strong>ReliableSMM</strong><span>Configured · inactive</span><small>Production fulfillment remains disabled.</small></article></div></> }

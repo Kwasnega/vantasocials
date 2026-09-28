@@ -1,5 +1,6 @@
 node_modules/
 .npm-cache/
+supabase/.temp/
 .next/
 dev-server.log
 .env.local

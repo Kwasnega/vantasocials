@@ -26,7 +26,8 @@ export async function POST(request: Request) {
     if (creditError) throw creditError;
     return NextResponse.json({ status: "PAID", reference, transaction_id: credited?.id ?? null });
   } catch (error) {
-    console.error("Wallet deposit verification failed", error instanceof Error ? error.message : "unknown error");
+    const details = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error;
+    console.error("Wallet deposit verification failed", JSON.stringify(details));
     return NextResponse.json({ error: "Unable to verify wallet deposit." }, { status: 502 });
   }
 }

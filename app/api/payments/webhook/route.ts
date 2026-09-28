@@ -43,7 +43,8 @@ export async function POST(request: Request) {
     await admin.from("webhook_events").update({ processed: true, processed_at: new Date().toISOString() }).eq("provider", "paystack").eq("event_id", eventId);
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("Paystack webhook processing failed", error instanceof Error ? error.message : "unknown error");
+    const details = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error;
+    console.error("Paystack webhook processing failed", JSON.stringify(details));
     return NextResponse.json({ error: "Webhook processing failed." }, { status: 500 });
   }
 }

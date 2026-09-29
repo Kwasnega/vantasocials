@@ -15,6 +15,7 @@ export type CheckoutOrder = {
   currency: string;
   status: string;
   payment_status: string;
+  wallet_balance_minor: string;
 };
 
 export async function getCheckoutOrder(publicOrderId: string): Promise<CheckoutOrder | null> {
@@ -46,6 +47,8 @@ export async function getCheckoutOrder(publicOrderId: string): Promise<CheckoutO
     .maybeSingle();
   if (platformError) throw platformError;
   if (!platform) return null;
+  const { data: wallet, error: walletError } = await admin.from("wallets").select("balance_minor").eq("user_id", user.id).maybeSingle();
+  if (walletError) throw walletError;
 
   return {
     public_order_id: order.public_order_id,
@@ -60,5 +63,6 @@ export async function getCheckoutOrder(publicOrderId: string): Promise<CheckoutO
     currency: order.currency,
     status: order.status,
     payment_status: order.payment_status,
+    wallet_balance_minor: String(wallet?.balance_minor ?? 0),
   };
 }

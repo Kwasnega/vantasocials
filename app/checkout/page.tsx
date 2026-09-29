@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckoutPayButton } from "../../components/checkout/CheckoutPayButton";
+import { CheckoutPaymentOptions } from "../../components/checkout/CheckoutPaymentOptions";
 import { getCheckoutOrder } from "../../lib/orders/checkout";
 
 export default async function CheckoutPage({ searchParams }: { searchParams: Promise<{ order?: string }> }) {
@@ -19,6 +19,6 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
     <p>Target: {checkoutOrder.target_value}</p>
     <p>Quantity: {checkoutOrder.quantity}</p>
     <p>Amount: {checkoutOrder.total} {checkoutOrder.currency}</p>
-    {payable ? <CheckoutPayButton orderId={checkoutOrder.public_order_id} /> : <p>This order is not available for payment in its current state.</p>}
+    {payable ? <CheckoutPaymentOptions orderId={checkoutOrder.public_order_id} balanceMinor={checkoutOrder.wallet_balance_minor} /> : <p>This order is not available for payment in its current state.</p>}
   </main>;
 }

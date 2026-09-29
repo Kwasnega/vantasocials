@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { getService } from "../../../lib/catalog/services";
 import { ServiceConfigurator } from "../../../components/services/ServiceConfigurator";
 
+export const dynamic = "force-dynamic";
+
 export async function generateStaticParams() { return []; }
 
 export default async function ServicePage({ params }: { params: Promise<{ service: string }> }) {

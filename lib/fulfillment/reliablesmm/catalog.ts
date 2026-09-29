@@ -14,7 +14,7 @@ function rate(value: unknown) { const result = String(value); if (!/^\d+(\.\d+)?
 
 export function normalizeReliableSMMService(service: ReliableSMMService): NormalizedReliableSMMService {
   const id = String(service.service); if (!/^\d+$/.test(id) || !service.name) throw new Error("Invalid ReliableSMM service.");
-  return { provider: "reliablesmm", providerServiceId: id, name: service.name, type: String(service.type || ""), category: String(service.category || ""), providerRate: rate(service.rate), pricingUnit: "unknown", currency: "USD", minQuantity: integer(service.min), maxQuantity: integer(service.max), refill: flag(service.refill), cancel: flag(service.cancel), rawMetadata: { ...service } };
+  return { provider: "reliablesmm", providerServiceId: id, name: service.name, type: String(service.type || ""), category: String(service.category || ""), providerRate: rate(service.rate), pricingUnit: "per_1000", currency: "USD", minQuantity: integer(service.min), maxQuantity: integer(service.max), refill: flag(service.refill), cancel: flag(service.cancel), rawMetadata: { type: service.type, category: service.category } };
 }
 
 export function normalizeReliableSMMCatalog(services: ReliableSMMService[]) { return services.map(normalizeReliableSMMService); }

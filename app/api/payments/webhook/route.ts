@@ -18,15 +18,15 @@ export async function POST(request: Request) {
   const reference = typeof payload.data?.reference === "string" ? payload.data.reference : "";
   const eventId = payload.data?.id != null ? `${String(payload.event || "event")}:${String(payload.data.id)}` : "";
   if (!eventId || !reference) return NextResponse.json({ received: true });
+  let processingToken: string | null = null;
   try {
     const admin = createSupabaseAdminClient();
-    const { data: existing, error: existingError } = await admin.from("webhook_events").select("id,processed").eq("provider", "paystack").eq("event_id", eventId).maybeSingle();
-    if (existingError) throw existingError;
-    if (existing?.processed) return NextResponse.json({ received: true });
-    if (!existing) {
-      const { error: insertError } = await admin.from("webhook_events").insert({ provider: "paystack", event_id: eventId, event_type: typeof payload.event === "string" ? payload.event : "unknown", payload });
-      if (insertError && insertError.code !== "23505") throw insertError;
-    }
+    const { data: claimRows, error: claimError } = await admin.rpc("claim_paystack_webhook_event", { p_event_id: eventId, p_event_type: typeof payload.event === "string" ? payload.event : "unknown", p_payload: payload });
+    if (claimError) throw claimError;
+    const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+    if (!claim?.claimed) return NextResponse.json({ received: true });
+    processingToken = typeof claim.processing_token === "string" ? claim.processing_token : null;
+    if (!processingToken) return NextResponse.json({ received: true });
     const { data: byReference } = await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status").eq("reference", reference).maybeSingle();
     const { data: byProviderReference } = byReference ? { data: null } : await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status").eq("provider_reference", reference).maybeSingle();
     const deposit = byReference || byProviderReference;
@@ -40,11 +40,13 @@ export async function POST(request: Request) {
     } else {
       await verifyAndSettlePaystack(reference);
     }
-    await admin.from("webhook_events").update({ processed: true, processed_at: new Date().toISOString() }).eq("provider", "paystack").eq("event_id", eventId);
+    const { error: completeError } = await admin.rpc("complete_paystack_webhook_event", { p_event_id: eventId, p_processing_token: processingToken });
+    if (completeError) throw completeError;
     return NextResponse.json({ received: true });
   } catch (error) {
-    const details = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error;
-    console.error("Paystack webhook processing failed", JSON.stringify(details));
+    const details = error instanceof Error ? error.message : "unknown";
+    console.error("Paystack webhook processing failed", details);
+    if (typeof processingToken === "string") await createSupabaseAdminClient().rpc("fail_paystack_webhook_event", { p_event_id: eventId, p_processing_token: processingToken, p_error: details });
     return NextResponse.json({ error: "Webhook processing failed." }, { status: 500 });
   }
 }

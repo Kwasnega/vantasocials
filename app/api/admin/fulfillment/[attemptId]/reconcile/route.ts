@@ -1,0 +1,5 @@
+import { NextResponse } from "next/server";
+import { requireAdmin } from "../../../../../../lib/admin/auth";
+import { createSupabaseAdminClient } from "../../../../../../lib/supabase/server";
+import { reconcileReliableSMMAttempt } from "../../../../../../lib/fulfillment/reliablesmm/reconcile";
+export async function POST(request: Request,{params}:{params:Promise<{attemptId:string}>}){const {user,admin}=await requireAdmin();if(!user)return NextResponse.json({error:"Authentication required."},{status:401});if(!admin)return NextResponse.json({error:"Admin access required."},{status:403});const {attemptId}=await params;if(!/^[0-9a-f-]{36}$/i.test(attemptId))return NextResponse.json({error:"Invalid attempt id."},{status:400});const result=await reconcileReliableSMMAttempt(attemptId);if(result.outcome==="NOT_FOUND")return NextResponse.json({error:"Attempt not found."},{status:404});if(result.outcome==="NOT_RECONCILABLE")return NextResponse.json({error:"Attempt is not reconcilable."},{status:409});if(result.outcome==="LEASE_CONFLICT")return NextResponse.json(result,{status:409});return NextResponse.json(result);}

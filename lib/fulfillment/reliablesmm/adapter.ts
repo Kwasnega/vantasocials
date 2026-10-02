@@ -12,9 +12,10 @@ function status(value: string): ProviderFulfillmentStatus {
 export class ReliableSMMAdapter implements ProviderAdapter {
   readonly name = "reliablesmm";
   constructor(private readonly client = new ReliableSMMReadOnlyClient()) {}
+  async acquireRequestGate() { await this.client.acquireRequestGate(); }
   async getBalance(): Promise<ProviderAccount> { return this.client.getBalance(); }
-  async createOrder(input: ProviderOrderRequest): Promise<ProviderOrderResult> {
-    const result = await this.client.createOrder({ service: Number(input.providerServiceId), link: input.targetValue, quantity: input.quantity });
+  async createOrder(input: ProviderOrderRequest, gateAcquired = false): Promise<ProviderOrderResult> {
+    const result = await this.client.createOrder({ service: Number(input.providerServiceId), link: input.targetValue, quantity: input.quantity }, gateAcquired);
     return { providerOrderId: String(result.order), status: "SUBMITTED", charge: null, currency: "USD", startCount: null, remains: null, rawResponse: result };
   }
   async getOrder(providerOrderId: string): Promise<ProviderOrderResult> {

@@ -8,8 +8,8 @@ const transitions: Record<FulfillmentStatus, readonly FulfillmentStatus[]> = {
   SUBMITTED: ["PROCESSING", "FAILED", "CANCELLED"],
   PROCESSING: ["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"],
   COMPLETED: [],
-  PARTIAL: ["PROCESSING", "COMPLETED", "FAILED", "CANCELLED"],
-  FAILED: ["SUBMITTING"],
+  PARTIAL: [],
+  FAILED: [],
   CANCELLED: [],
 };
 
@@ -22,5 +22,5 @@ export function assertFulfillmentTransition(from: FulfillmentStatus, to: Fulfill
 }
 
 export function canStartFulfillment(input: { paymentStatus: string; fulfillmentStatus: FulfillmentStatus }) {
-  return input.paymentStatus === "PAID" && (input.fulfillmentStatus === "NOT_STARTED" || input.fulfillmentStatus === "FAILED");
+  return input.paymentStatus === "PAID" && input.fulfillmentStatus === "NOT_STARTED";
 }

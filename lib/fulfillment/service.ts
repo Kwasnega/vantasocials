@@ -7,7 +7,7 @@ export async function assertOrderEligibleForFulfillment(orderId: string) {
   const admin = createSupabaseAdminClient();
   const { data: order, error } = await admin.from("orders").select("id,payment_status,fulfillment_status,service_id,target_value,quantity").eq("id", orderId).maybeSingle();
   if (error) throw error;
-  if (!order || !canStartFulfillment({ paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status })) throw new Error("Order is not eligible for fulfillment.");
+  if (!order || order.payment_status !== "PAID" || !["NOT_STARTED", "SUBMITTING"].includes(order.fulfillment_status)) throw new Error("Order is not eligible for fulfillment.");
   return order;
 }
 

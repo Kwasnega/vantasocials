@@ -1,4 +1,6 @@
 import "server-only";
+import crypto from "node:crypto";
+import { createSupabaseAdminClient } from "../../supabase/server";
 
 const ENDPOINT = "https://reliablesmm.com/api/v2";
 
@@ -18,8 +20,19 @@ export type ReliableSMMService = { service: number | string; name: string; type?
 export type ReliableSMMBalance = { balance: string; currency: string };
 
 function apiKey() { const value = process.env.RELIABLESMM_API_KEY; if (!value) throw new ReliableSMMError("ReliableSMM is not configured.", 503, "MISSING_API_KEY"); return value; }
+function requestIntervalMs() {
+  const raw = process.env.RELIABLESMM_MIN_REQUEST_INTERVAL_MS;
+  if (raw === undefined || raw === "") return 1000;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 100 || value > 60000) throw new ReliableSMMError("ReliableSMM request interval configuration is invalid.", 503, "INVALID_REQUEST_INTERVAL");
+  return value;
+}
 
-async function request<T>(action: string, params: Record<string, string | number> = {}): Promise<T> {
+async function request<T>(action: string, params: Record<string, string | number> = {}, gateAcquired = false): Promise<T> {
+  if (!gateAcquired) {
+    const gate = await createSupabaseAdminClient().rpc("acquire_provider_request_slot", { p_operation_key: "reliablesmm:api", p_owner_token: crypto.randomUUID(), p_min_interval_ms: requestIntervalMs() });
+    if (gate.error || gate.data !== true) throw new ReliableSMMError("ReliableSMM request rate limit unavailable or active.", 429, "PROVIDER_RATE_LIMITED");
+  }
   const body = new URLSearchParams({ key: apiKey(), action, ...Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])) });
   let response: Response;
   try { response = await fetch(ENDPOINT, { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body, cache: "no-store", signal: AbortSignal.timeout(15000) }); }
@@ -28,11 +41,16 @@ async function request<T>(action: string, params: Record<string, string | number
   if (!response.ok) throw new ReliableSMMError("ReliableSMM request failed.", response.status, "HTTP_ERROR");
   if (!json || typeof json !== "object") throw new ReliableSMMError("ReliableSMM returned malformed JSON.", response.status, "MALFORMED_JSON");
   const value = json as RawService & { error?: unknown };
-  if (value.error) throw new ReliableSMMError("ReliableSMM returned a provider error.", response.status, "PROVIDER_ERROR");
+  if (value.error) throw new ReliableSMMError("ReliableSMM rejected the request before creating an order.", response.status, "PROVIDER_REJECTED");
   return json as T;
 }
 
 export class ReliableSMMReadOnlyClient {
+  async acquireRequestGate() {
+    const gate = await createSupabaseAdminClient().rpc("acquire_provider_request_slot", { p_operation_key: "reliablesmm:api", p_owner_token: crypto.randomUUID(), p_min_interval_ms: requestIntervalMs() });
+    if (gate.error || gate.data !== true) throw new ReliableSMMError("ReliableSMM request rate limit unavailable or active.", 429, "PROVIDER_RATE_LIMITED");
+  }
+
   async getServices() { return request<ReliableSMMService[]>("services"); }
   async getBalance() {
     const result = await request<{ balance?: string | number; currency?: string }>("balance");
@@ -46,9 +64,9 @@ export class ReliableSMMReadOnlyClient {
     return request<{ order: number }>("add", input);
   }
 
-  async createOrder(input: { service: number; link: string; quantity: number }) {
+  async createOrder(input: { service: number; link: string; quantity: number }, gateAcquired = false) {
     if (process.env.PANELS_LIVE_FULFILLMENT_ENABLED !== "true") throw new ReliableSMMError("Live fulfillment is disabled.", 423, "LIVE_FULFILLMENT_DISABLED");
-    return request<{ order: number }>("add", input);
+    return request<{ order: number }>("add", input, gateAcquired);
   }
 
   async getStatus(providerOrderId: string) { return request<{ charge: string; start_count: number; status: string; remains: number; currency: string }>("status", { order: providerOrderId }); }

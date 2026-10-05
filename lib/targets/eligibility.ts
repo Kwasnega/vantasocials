@@ -1,5 +1,5 @@
-import type { TargetContract } from "./contracts.ts";
-import { effectiveQuantityBounds, getTargetContract } from "./contracts.ts";
+import type { TargetContract } from "./contracts";
+import { effectiveQuantityBounds, getTargetContract } from "./contracts";
 
 export type EligibilityStatus = "ELIGIBLE" | "MANUAL_REVIEW" | "BLOCKED";
 export type ProviderCandidate = { provider: string; provider_service_id: string; name: string; provider_status: string; provider_currency: string; rate_unit: string; min_quantity: number; max_quantity: number; raw_metadata?: unknown };

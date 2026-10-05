@@ -1,7 +1,6 @@
 import "server-only";
 
 import { claimPanelFollowsAttempt, submitPanelFollowsAttempt } from "./panelfollows/attempt";
-import { reliableSMMProductionMappings } from "./reliablesmm/mapping";
 import { resolveProviderForService } from "./resolver";
 import { fulfillReliableSMMOrder } from "./reliablesmm/attempt";
 
@@ -10,10 +9,9 @@ import { fulfillReliableSMMOrder } from "./reliablesmm/attempt";
  * Payment settlement remains responsible only for marking payment PAID;
  * callers should enqueue/call this worker after that transition.
  */
-export async function fulfillPaidOrder(input: { orderId: string; vantaSlug: string; targetValue: string; quantity: number }) {
-  const reliableMapping = reliableSMMProductionMappings.find((mapping) => mapping.vantaSlug === input.vantaSlug);
-  if (reliableMapping && !reliableMapping.active) throw new Error("ReliableSMM mapping is inactive and requires manual review.");
-  if (resolveProviderForService(input.vantaSlug)?.mapping.provider === "reliablesmm") return { outcome: "SUBMITTED" as const, attempt: await fulfillReliableSMMOrder(input) };
+export async function fulfillPaidOrder(input: { orderId: string; vantaSlug: string; targetType: "username" | "url" | "post_url" | "video_url" | "channel" | "page"; targetValue: string; quantity: number }) {
+  const provider = await resolveProviderForService(input.vantaSlug);
+  if (provider?.mapping.provider === "reliablesmm") return { outcome: "SUBMITTED" as const, attempt: await fulfillReliableSMMOrder(input) };
   const claimed = await claimPanelFollowsAttempt(input.orderId, input.vantaSlug, input.targetValue, input.quantity);
   if (claimed.kind === "existing") return { outcome: "EXISTING_ATTEMPT" as const, attempt: claimed.attempt };
   try {

@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
+import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../lib/security/rate-limit";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { user, admin } = await requireAdmin();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+  try { const rejected = await enforceAdminRateLimit(request, user.id, "pricing-mutation", [20, 20]); if (rejected) return rejected; } catch { return limiterUnavailable(); }
   const { slug } = await params;
   const body = await request.json().catch(() => null);
   const sellingRate = typeof body?.selling_rate === "string" ? body.selling_rate.trim() : "";

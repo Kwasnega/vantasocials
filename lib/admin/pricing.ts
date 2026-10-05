@@ -1,6 +1,6 @@
 import "server-only";
 
-import { calculatePricing, type RateUnit } from "../pricing/engine";
+import { calculatePricing, toPricingString, type RateUnit } from "../pricing/engine";
 
 export type PricingRow = {
   id: string; slug: string; name: string; selling_rate: string; currency: string;
@@ -10,6 +10,6 @@ export type PricingRow = {
 };
 
 export function derivePricing(service: PricingRow, fxRate: string) {
-  if (!service.provider_rate || !service.provider_rate_unit || service.provider_currency !== "USD" || service.currency !== "GHS") return { revenueGhs: null, providerCostUsd: null, providerCostGhs: null, grossProfitGhs: null, grossMarginPercent: null, lossOrNoMargin: null };
-  return calculatePricing({ providerRate: service.provider_rate, providerRateUnit: service.provider_rate_unit, providerCurrency: "USD", fxRate, sellingPricePerUnit: service.selling_rate, sellingCurrency: "GHS", quantity: service.min_quantity });
+  if (!service.provider_rate || !service.provider_rate_unit || service.provider_currency !== "USD" || service.currency !== "GHS") return { previewQuantity: 10000, revenueGhs: null, providerCostUsd: null, providerCostGhs: null, providerCostGhsPerUnit: null, grossProfitGhs: null, grossProfitGhsPerUnit: null, grossMarginPercent: null, lossOrNoMargin: null };
+  return calculatePricing({ providerRate: toPricingString(service.provider_rate), providerRateUnit: service.provider_rate_unit, providerCurrency: "USD", fxRate: toPricingString(fxRate), sellingPricePerUnit: toPricingString(service.selling_rate), sellingCurrency: "GHS", quantity: 10000 });
 }

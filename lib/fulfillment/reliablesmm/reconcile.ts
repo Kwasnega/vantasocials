@@ -1,23 +1,23 @@
 import "server-only";
-
+import crypto from "node:crypto";
 import { createSupabaseAdminClient } from "../../supabase/server";
 import { ReliableSMMAdapter } from "./adapter";
-
-const terminal = new Set(["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"]);
-const intervalSeconds = (attempts: number) => Math.min(3600, Math.max(60, 60 * 2 ** Math.min(attempts, 5)));
-
-export async function reconcileReliableSMMBatch(limit = 10, adapter = new ReliableSMMAdapter()) {
-  const admin = createSupabaseAdminClient();
-  const now = new Date().toISOString();
-  const { data: attempts, error } = await admin.from("provider_orders").select("id,order_id,provider_order_id,status,poll_attempts").eq("provider", "reliablesmm").not("provider_order_id", "is", null).not("status", "in", "(COMPLETED,PARTIAL,FAILED,CANCELLED)").or(`next_poll_at.is.null,next_poll_at.lte.${now}`).order("created_at", { ascending: true }).limit(Math.min(Math.max(limit, 1), 10));
-  if (error) throw error;
-  const results = [];
-  for (const attempt of attempts || []) {
-    const result = await adapter.getOrder(String(attempt.provider_order_id));
-    const next = terminal.has(result.status) ? null : new Date(Date.now() + intervalSeconds(Number(attempt.poll_attempts || 0) + 1) * 1000).toISOString();
-    await admin.from("provider_orders").update({ status: result.status, charge: result.charge, currency: result.currency, start_count: result.startCount, remains: result.remains, raw_response: result.rawResponse, last_polled_at: now, next_poll_at: next, poll_attempts: Number(attempt.poll_attempts || 0) + 1, attempt_status: terminal.has(result.status) ? "SUBMITTED" : "SUBMITTED" }).eq("id", attempt.id).eq("provider", "reliablesmm");
-    if (result.status === "COMPLETED" || result.status === "PARTIAL" || result.status === "FAILED" || result.status === "CANCELLED") await admin.from("orders").update({ fulfillment_status: result.status }).eq("id", attempt.order_id);
-    results.push({ attemptId: attempt.id, status: result.status });
-  }
-  return { processed: results.length, results };
+const terminal = new Set(["COMPLETED","PARTIAL","FAILED","CANCELLED"]);
+const POLL_FAILURE_MANUAL_REVIEW_THRESHOLD = 3;
+const intervalSeconds=(n:number)=>Math.min(3600,Math.max(60,60*2**Math.min(n,5)));
+const bounded=(value:unknown,max=1000)=>String(value||"UNKNOWN").slice(0,max);
+async function criticalEvent(db:ReturnType<typeof createSupabaseAdminClient>, event:Record<string,unknown>) {
+ const result=await db.from("provider_order_events").insert(event);
+ if(result.error) throw new Error(`RECONCILIATION_EVENT_PERSISTENCE_FAILED:${bounded(result.error.message)}`);
 }
+export async function reconcileReliableSMMAttempt(attemptId:string,adapter=new ReliableSMMAdapter()){
+ const db=createSupabaseAdminClient(); const {data:a,error}=await db.from("provider_orders").select("id,order_id,provider,provider_order_id,status,attempt_status,poll_attempts,manual_review_state").eq("id",attemptId).maybeSingle(); if(error)throw error;
+ if(!a)return {outcome:"NOT_FOUND" as const}; if(a.provider!=="reliablesmm"||!a.provider_order_id||a.manual_review_state!=="NONE"||!["SUBMITTED","UNKNOWN_PENDING_RECONCILIATION"].includes(a.attempt_status))return {outcome:"NOT_RECONCILABLE" as const};
+ const ownerToken=crypto.randomUUID(); const lease=await db.rpc("acquire_reconciliation_lease",{p_attempt_id:a.id,p_owner_token:ownerToken,p_lease_seconds:120}); if(lease.error)throw lease.error; if(lease.data!==true)return {outcome:"LEASE_CONFLICT" as const,attemptId};
+  try{await criticalEvent(db,{provider_order_id:a.id,event_type:"RECONCILIATION_STARTED",metadata:{}});let result;try{result=await adapter.getOrder(String(a.provider_order_id));}catch(error){const message=bounded(error instanceof Error?error.message:"POLL_FAILED");const increment=await db.rpc("increment_provider_poll_failure",{p_attempt_id:a.id,p_owner_token:ownerToken,p_error:message});if(!increment.error&&increment.data===true){const current=await db.from("provider_orders").select("poll_failure_count").eq("id",a.id).maybeSingle();if(!current.error&&Number(current.data?.poll_failure_count||0)>=POLL_FAILURE_MANUAL_REVIEW_THRESHOLD){await db.rpc("require_provider_manual_review",{p_attempt_id:a.id,p_reason:`Repeated provider polling failures reached threshold (${POLL_FAILURE_MANUAL_REVIEW_THRESHOLD}).`});}}try{await criticalEvent(db,{provider_order_id:a.id,event_type:"RECONCILIATION_FAILED",error_code:message,metadata:{kind:"provider_status_error",poll_failure_threshold:POLL_FAILURE_MANUAL_REVIEW_THRESHOLD}});}catch{ /* conservative result remains non-success */ }return {outcome:"POLL_FAILED" as const,attemptId};}
+  try{await criticalEvent(db,{provider_order_id:a.id,event_type:"PROVIDER_STATUS_OBSERVED",provider_status:bounded(result.status,64),metadata:{provider_order_id_present:true}});}catch(error){try{await db.from("provider_order_events").insert({provider_order_id:a.id,event_type:"RECONCILIATION_FAILED",error_code:bounded(error),metadata:{kind:"observation_event_persistence_error"}});}catch{}return {outcome:"RECONCILIATION_EVENT_FAILURE" as const,attemptId};}
+  const now=new Date().toISOString();const next=terminal.has(result.status)?null:new Date(Date.now()+intervalSeconds(Number(a.poll_attempts||0)+1)*1000).toISOString();const saved=await db.from("provider_orders").update({status:result.status,charge:result.charge,currency:result.currency,start_count:result.startCount,remains:result.remains,raw_response:result.rawResponse,last_polled_at:now,next_poll_at:next,poll_attempts:Number(a.poll_attempts||0)+1,attempt_status:"SUBMITTED"}).eq("id",a.id).eq("reconciliation_owner_token",ownerToken);if(saved.error){try{await criticalEvent(db,{provider_order_id:a.id,event_type:"RECONCILIATION_FAILED",error_code:bounded(saved.error.message),metadata:{kind:"persistence_error"}});}catch{}throw saved.error;}
+  if(["PROCESSING","COMPLETED","PARTIAL","FAILED","CANCELLED"].includes(result.status)){const current=await db.from("orders").select("fulfillment_status").eq("id",a.order_id).single();if(current.error)return {outcome:"RECONCILIATION_FAILED" as const,attemptId,error:bounded(current.error.message)};if(current.data.fulfillment_status!==result.status){const transition=await db.rpc("transition_fulfillment_state",{p_order_id:a.order_id,p_from:current.data.fulfillment_status,p_to:result.status});if(transition.error||transition.data!==true){try{await criticalEvent(db,{provider_order_id:a.id,event_type:"RECONCILIATION_FAILED",error_code:bounded(transition.error?.message||"TRANSITION_REJECTED"),metadata:{kind:transition.error?"transition_rpc_error":"transition_rejected",requested_status:result.status}});}catch{}return {outcome:"RECONCILIATION_FAILED" as const,attemptId,error:bounded(transition.error?.message||"TRANSITION_REJECTED")};}}}return {outcome:"RECONCILED" as const,attemptId,status:result.status};
+ }finally{await db.rpc("release_reconciliation_lease",{p_attempt_id:a.id,p_owner_token:ownerToken});}
+}
+export async function reconcileReliableSMMBatch(limit=10,adapter=new ReliableSMMAdapter()){const db=createSupabaseAdminClient();await db.rpc("recover_expired_submission_boundaries");const now=new Date().toISOString();const {data,error}=await db.from("provider_orders").select("id").eq("provider","reliablesmm").not("provider_order_id","is",null).not("status","in","(COMPLETED,PARTIAL,FAILED,CANCELLED)").eq("manual_review_state","NONE").or(`next_poll_at.is.null,next_poll_at.lte.${now}`).order("created_at",{ascending:true}).limit(Math.min(Math.max(limit,1),10));if(error)throw error;const results=[];for(const a of data||[])results.push(await reconcileReliableSMMAttempt(a.id,adapter));return {processed:results.length,results};}

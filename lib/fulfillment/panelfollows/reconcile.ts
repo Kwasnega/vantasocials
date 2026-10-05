@@ -14,7 +14,12 @@ export async function reconcilePanelFollowsAttempt(attemptId: string, client = n
   const status = providerToVanta[rawStatus];
   if (!status) throw new Error("PanelFollows returned an unsupported order status.");
   const { data: saved } = await admin.from("provider_orders").update({ status, attempt_status: "SUBMITTED", raw_response: providerOrder }).eq("id", attempt.id).eq("provider_order_id", attempt.provider_order_id).select().single();
-  if (status === "COMPLETED" || status === "PARTIAL" || status === "FAILED" || status === "CANCELLED") await admin.from("orders").update({ fulfillment_status: status }).eq("id", attempt.order_id);
-  else await admin.from("orders").update({ fulfillment_status: status }).eq("id", attempt.order_id);
+  const current = await admin.from("orders").select("fulfillment_status").eq("id", attempt.order_id).single();
+  if (current.error) throw current.error;
+  if (current.data?.fulfillment_status !== status) {
+    const transition = await admin.rpc("transition_fulfillment_state", { p_order_id: attempt.order_id, p_from: current.data.fulfillment_status, p_to: status });
+    if (transition.error) throw transition.error;
+    if (transition.data !== true) throw new Error("FULFILLMENT_STATE_TRANSITION_REJECTED");
+  }
   return saved;
 }

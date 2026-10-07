@@ -425,3 +425,44 @@ h1 span { display:block; }.intro { max-width:615px; margin:27px auto 0; font-siz
 @media (prefers-reduced-motion:reduce) {
   .temporary-photo, .temporary-photo:before, .temporary-photo:after { animation:none !important; }
 }
+
+/* Final hero tuning: keep the source photo readable and let the travel read
+   through movement, not an oversized crop. */
+.temporary-photo {
+  inset:-8% -12%;
+  background-size:cover;
+  background-position:50% 52%;
+  animation:hero-forward-flight-tuned 26s linear infinite;
+}
+.temporary-photo:before,
+.temporary-photo:after {
+  inset:0;
+  background-size:cover;
+}
+.temporary-photo:before {
+  opacity:.15;
+  animation:hero-forward-layer-a-tuned 31s linear -14s infinite;
+}
+.temporary-photo:after {
+  opacity:.07;
+  animation:hero-forward-layer-b-tuned 39s linear -23s infinite;
+}
+@keyframes hero-forward-flight-tuned {
+  0% { transform:translate3d(1.5%,2%,0) scale(1.015); background-position:49% 54%; }
+  50% { transform:translate3d(-1%,-1.5%,0) scale(1.035); background-position:51% 48%; }
+  100% { transform:translate3d(-2.5%,-5%,0) scale(1.06); background-position:49% 43%; }
+}
+@keyframes hero-forward-layer-a-tuned {
+  0% { transform:translate3d(1%,2%,0) scale(1.01); background-position:49% 54%; }
+  100% { transform:translate3d(-2%,-5%,0) scale(1.065); background-position:51% 43%; }
+}
+@keyframes hero-forward-layer-b-tuned {
+  0% { transform:translate3d(-1%,2%,0) scale(1.015); background-position:51% 55%; }
+  100% { transform:translate3d(2%,-5%,0) scale(1.07); background-position:49% 42%; }
+}
+@media (max-width:760px) {
+  .temporary-photo { inset:-7% -18%; background-size:cover; animation-duration:30s; }
+  .temporary-photo:before, .temporary-photo:after { background-size:cover; }
+  .temporary-photo:before { opacity:.11; animation-duration:35s; }
+  .temporary-photo:after { opacity:.05; animation-duration:43s; }
+}

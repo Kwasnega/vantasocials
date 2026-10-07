@@ -44,7 +44,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {menuOpen && <div className="site-menu" role="dialog" aria-modal="true" aria-label="Site menu"><button className="menu-close" onClick={() => setMenuOpen(false)} aria-label="Close menu">Close <b aria-hidden="true">×</b></button><div className="menu-services"><div className="menu-service"><h2>◎ Instagram<br />services</h2><a href="#services" onClick={() => setMenuOpen(false)}>◎ &nbsp; Buy followers</a><a href="#services" onClick={() => setMenuOpen(false)}>♥ &nbsp; Buy likes</a><a href="#services" onClick={() => setMenuOpen(false)}>◉ &nbsp; Buy views</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-likes</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-views</a></div><div className="menu-service"><h2>♪ TikTok<br />services</h2><a href="#services" onClick={() => setMenuOpen(false)}>♪ &nbsp; Buy followers</a><a href="#services" onClick={() => setMenuOpen(false)}>♥ &nbsp; Buy likes</a><a href="#services" onClick={() => setMenuOpen(false)}>◉ &nbsp; Buy views</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-likes</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-views</a></div></div><nav className="menu-nav" aria-label="Menu links"><a href="#top" onClick={() => setMenuOpen(false)}>Home</a><a href="#how" onClick={() => setMenuOpen(false)}>How it works</a><a href="#services" onClick={() => setMenuOpen(false)}>Services</a><a href="#guarantees-heading" onClick={() => setMenuOpen(false)}>Guarantees</a><a href="mailto:hello@vanta.example">Support</a></nav></div>}
+      {menuOpen && <div className="site-menu" role="dialog" aria-modal="true" aria-label="Site menu"><button className="menu-close" onClick={() => setMenuOpen(false)} aria-label="Close menu">Close <b aria-hidden="true">×</b></button><div className="menu-services"><div className="menu-service"><h2>◎ Instagram<br />services</h2><a href="#services" onClick={() => setMenuOpen(false)}>◎ &nbsp; Buy followers</a><a href="#services" onClick={() => setMenuOpen(false)}>♥ &nbsp; Buy likes</a><a href="#services" onClick={() => setMenuOpen(false)}>◉ &nbsp; Buy views</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-likes</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-views</a></div><div className="menu-service"><h2>♪ TikTok<br />services</h2><a href="#services" onClick={() => setMenuOpen(false)}>♪ &nbsp; Buy followers</a><a href="#services" onClick={() => setMenuOpen(false)}>♥ &nbsp; Buy likes</a><a href="#services" onClick={() => setMenuOpen(false)}>◉ &nbsp; Buy views</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-likes</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-views</a></div></div><nav className="menu-nav" aria-label="Menu links"><a href="#top" onClick={() => setMenuOpen(false)}>Home</a><a href="#how" onClick={() => setMenuOpen(false)}>How it works</a><a href="#services" onClick={() => setMenuOpen(false)}>Services</a><a href="#guarantees-heading" onClick={() => setMenuOpen(false)}>Guarantees</a><a href="mailto:vantasocials62@gmail.com">Support</a></nav></div>}
 
       <section className="hero-copy" id="top">
         <p className="eyebrow">SOCIAL GROWTH, SIMPLIFIED</p>
@@ -67,7 +67,7 @@ export default function Home() {
 
       <aside className="rating-card"><div className="stars">★★★★★ <b>4.9/5.0</b></div><p>Selected for a better kind<br />of social growth.</p></aside>
       <aside className="benefits"><p>◉ &nbsp; No password required</p><p>ϟ &nbsp; Fast, dependable delivery</p><p>▣ &nbsp; Secure checkout</p></aside>
-      <a className="support" href="mailto:hello@vanta.example" aria-label="Contact VANTA">●</a>
+      <a className="support" href="mailto:vantasocials62@gmail.com" aria-label="Contact VANTA">●</a>
     </main>
 
     <section className="how-it-works" id="how" aria-labelledby="how-heading">
@@ -177,11 +177,11 @@ export default function Home() {
     <footer className="site-footer">
       <div className="footer-mark" aria-hidden="true">VANTA</div>
       <div className="footer-main">
-        <div className="footer-intro"><a className="footer-brand" href="#top"><span>V</span> VANTA</a><h2>Grow with clarity.<br />Move with purpose.</h2><a className="footer-cta" href="#start">Start growing <ArrowUpRight /></a><p>© {new Date().getFullYear()} VANTA. All rights reserved.<br /><a href="mailto:hello@vanta.example">hello@vanta.example</a></p></div>
+        <div className="footer-intro"><a className="footer-brand" href="#top"><span>V</span> VANTA</a><h2>Grow with clarity.<br />Move with purpose.</h2><a className="footer-cta" href="#start">Start growing <ArrowUpRight /></a><p>© {new Date().getFullYear()} VANTA. All rights reserved.<br /><a href="mailto:vantasocials62@gmail.com">vantasocials62@gmail.com</a></p></div>
         <nav className="footer-links" aria-label="Footer navigation">
           <div><h3>Platforms</h3><a href="#services">Instagram</a><a href="#services">TikTok</a><a href="#services">YouTube</a><a href="#services">Facebook</a><a href="#services">X</a><a href="#services">Telegram</a></div>
           <div><h3>Services</h3><a href="#services">Followers</a><a href="#services">Likes</a><a href="#services">Views</a><a href="#services">Comments</a><a href="#services">Engagement</a></div>
-          <div><h3>VANTA</h3><a href="#how">How it works</a><a href="#delivery-heading">Delivery options</a><a href="#guarantees-heading">Guarantees</a><a href="mailto:hello@vanta.example">Support</a></div>
+          <div><h3>VANTA</h3><a href="#how">How it works</a><a href="#delivery-heading">Delivery options</a><a href="#guarantees-heading">Guarantees</a><a href="mailto:vantasocials62@gmail.com">Support</a></div>
           <div><h3>Legal</h3><a href="#">Terms of service</a><a href="#">Privacy policy</a><a href="#">Refund policy</a></div>
         </nav>
       </div>

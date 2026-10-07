@@ -10,6 +10,6 @@ export type PricingRow = {
 };
 
 export function derivePricing(service: PricingRow, fxRate: string) {
-  if (!service.provider_rate || !service.provider_rate_unit || service.provider_currency !== "USD" || service.currency !== "GHS") return { previewQuantity: 10000, revenueGhs: null, providerCostUsd: null, providerCostGhs: null, providerCostGhsPerUnit: null, grossProfitGhs: null, grossProfitGhsPerUnit: null, grossMarginPercent: null, lossOrNoMargin: null };
+  if (!service.provider_rate || !service.provider_rate_unit || service.provider_currency !== "USD" || service.currency !== "GHS") return { previewQuantity: 10000, revenueGhs: null, providerCostUsd: null, providerCostGhs: null, providerCostGhsPerUnit: null, providerCostGhsPerBasis: null, grossProfitGhs: null, grossProfitGhsPerUnit: null, grossMarginPercent: null, lossOrNoMargin: null };
   return calculatePricing({ providerRate: toPricingString(service.provider_rate), providerRateUnit: service.provider_rate_unit, providerCurrency: "USD", fxRate: toPricingString(fxRate), sellingPricePerUnit: toPricingString(service.selling_rate), sellingCurrency: "GHS", quantity: 10000 });
 }

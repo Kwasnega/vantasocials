@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/server";
+import { enforceAdminRateLimit, limiterUnavailable } from "../../../../lib/security/rate-limit";
 
 export async function GET(request: Request) {
-  const { user, admin } = await requireAdmin(); if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 }); if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+  const { user, admin } = await requireAdmin(); if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 }); if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 }); try { const rejected = await enforceAdminRateLimit(request, user.id, "wallet-read", 30); if (rejected) return rejected; } catch { return limiterUnavailable(); }
   const url = new URL(request.url); const page = Math.max(1, Number(url.searchParams.get("page") || "1") || 1); const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || "20") || 20)); const db = createSupabaseAdminClient();
   const { data: wallets, error } = await db.from("wallets").select("id,user_id,currency,balance_minor,created_at,profiles(email)").order("created_at", { ascending: false }).range((page - 1) * limit, page * limit - 1); if (error) return NextResponse.json({ error: "Unable to load wallets." }, { status: 500 });
   const walletRows = wallets ?? [];

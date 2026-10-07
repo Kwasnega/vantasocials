@@ -19,9 +19,15 @@ export function LoginForm() {
     setLoading(true);
     const { error: authError } = await createSupabaseBrowserClient().auth.signInWithPassword({ email: email.trim(), password });
     if (authError) { setError(authError.message.toLowerCase().includes("email not confirmed") ? "Please confirm your email address before signing in. Check your inbox or spam folder for the confirmation link." : "Unable to sign in with those details."); setLoading(false); return; }
-    router.replace(safeNext(searchParams.get("next"))); router.refresh();
+    const requestedNext = searchParams.get("next");
+    const redirectUrl = requestedNext ? `/api/auth/redirect?next=${encodeURIComponent(requestedNext)}` : "/api/auth/redirect";
+    const destination = await fetch(redirectUrl).then(async (response) => {
+      if (!response.ok) throw new Error("Unable to determine the account destination.");
+      return (await response.json() as { redirectTo?: string }).redirectTo;
+    }).catch(() => null);
+    router.replace(destination || "/account"); router.refresh();
   }
-  return <form className="auth-form" onSubmit={submit}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required /></label><label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>{error && <p role="alert">{error}</p>}<button className="service-action-link" disabled={loading}>{loading ? "Signing in…" : "Log in"}</button></form>;
+  return <form className="auth-form" onSubmit={submit}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required /></label><label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>{error && <p role="alert">{error}</p>}<button className={`service-action-link auth-submit${loading ? " is-loading" : ""}`} disabled={loading}><span>{loading ? "Signing in…" : "Log in"}</span>{loading && <i aria-hidden="true" />}</button></form>;
 }
 
 export function SignupForm() {

@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../../lib/supabase/server";
 import { initializePaystack, verifyPaystack } from "../../../../lib/payments/paystack";
 import { verifyAndSettlePaystack } from "../../../../lib/payments/settle";
+import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  try { const rl = await consumeRateLimits(rulesFor("payments-initialize", user.id, clientIp(request), [3, 10])); if (!rl.allowed) return rateLimited(rl); } catch { return limiterUnavailable(); }
+  if (Number(request.headers.get("content-length") || 0) > 4096) return NextResponse.json({ error: "Request body is too large." }, { status: 413 });
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 }); }
   const orderId = body && typeof body === "object" && typeof (body as Record<string, unknown>).order_id === "string" ? (body as Record<string, string>).order_id.trim() : "";

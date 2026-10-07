@@ -7,8 +7,17 @@
     "build": "next build",
     "start": "next start",
     "verify:phase2i": "node scripts/phase2i-verification.mjs",
+    "verify:phase6-core": "node scripts/phase6-core-tests.mjs",
+    "verify:phase6-lifecycle": "node scripts/phase6-lifecycle-events.mjs",
+    "verify:phase6-failure-semantics": "node scripts/phase6-failure-semantics.mjs",
     "verify:reliablesmm": "node scripts/reliablesmm-r5-mocked-tests.mjs",
     "verify:pricing": "node scripts/pricing-verification.mjs",
+    "test:pricing-engine": "node --experimental-strip-types scripts/pricing-engine-tests.mjs",
+    "test:phase1-reliablesmm-mapping": "node scripts/phase1-reliablesmm-mapping-tests.mjs",
+    "test:reliablesmm-metadata": "node scripts/reliablesmm-metadata-preservation-tests.mjs",
+    "test:target-contracts": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/target-contract-tests.mjs",
+    "test:phase4-mapping": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/phase4-mapping-tests.mjs",
+    "test:phase5-preflight": "node scripts/phase5-preflight-tests.mjs",
     "verify:auth": "node scripts/auth-verification.mjs",
     "verify:wallet": "node scripts/wallet-verification.mjs",
     "reliablesmm:r4:test": "node scripts/reliablesmm-r4-request.mjs"
@@ -23,5 +32,8 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "typescript": "5.7.2"
+  },
+  "devDependencies": {
+    "supabase": "^2.118.0"
   }
 }

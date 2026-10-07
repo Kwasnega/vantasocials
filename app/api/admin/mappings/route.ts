@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/server";
+import { enforceAdminRateLimit, limiterUnavailable } from "../../../../lib/security/rate-limit";
 export async function POST(request: Request) {
   const { user, admin } = await requireAdmin(); if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 }); if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+  try { const rejected = await enforceAdminRateLimit(request, user.id, "mapping-mutation", [10, 10]); if (rejected) return rejected; } catch { return limiterUnavailable(); }
   const body = await request.json().catch(() => null); const serviceId = String(body?.service_id || ""); const provider = String(body?.provider || ""); const providerServiceId = String(body?.provider_service_id || "");
   if (!serviceId || provider !== "reliablesmm" || !/^\d+$/.test(providerServiceId)) return NextResponse.json({ error: "A valid ReliableSMM provider service is required." }, { status: 400 });
   const db = createSupabaseAdminClient();

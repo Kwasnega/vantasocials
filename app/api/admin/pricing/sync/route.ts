@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { ReliableSMMReadOnlyClient } from "../../../../../lib/fulfillment/reliablesmm/client";
+import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../lib/security/rate-limit";
 
-export async function POST() {
+export async function POST(request: Request) {
   const { user, admin } = await requireAdmin();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+  try { const rejected = await enforceAdminRateLimit(request, user.id, "pricing-sync", [1, 1]); if (rejected) return rejected; } catch { return limiterUnavailable(); }
   const catalog = await new ReliableSMMReadOnlyClient().getServices().catch(() => null);
   if (!catalog) return NextResponse.json({ error: "Provider catalog unavailable." }, { status: 502 });
   const provider = catalog.find((service) => String(service.service) === "7486");

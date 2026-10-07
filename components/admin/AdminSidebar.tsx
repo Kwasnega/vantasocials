@@ -1,0 +1,7 @@
+"use client";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { LogoutButton } from "../auth/LogoutButton";
+const items=[ ["/admin","Overview"],["/admin/orders","Orders"],["/admin/customers","Customers"],["/admin/services","Services"],["/admin/settings","Settings"] ];
+export function AdminSidebar(){const path=usePathname();const [collapsed,setCollapsed]=useState(false);useEffect(()=>{setCollapsed(window.localStorage.getItem("vanta-admin-sidebar-collapsed")==="true")},[]);function toggle(){setCollapsed(value=>{const next=!value;window.localStorage.setItem("vanta-admin-sidebar-collapsed",String(next));return next})}return <aside className={`dashboard-sidebar admin-sidebar${collapsed?" is-collapsed":""}`}><div className="dashboard-sidebar-top"><Link className="dashboard-brand" href="/">VANTA</Link><button className="sidebar-toggle" onClick={toggle} aria-label="Toggle admin navigation"><span>{collapsed?"→":"←"}</span></button></div><p className="dashboard-kicker">ADMIN</p><nav>{items.map(([href,label])=>{const active=href==="/admin"?path==="/admin":path.startsWith(href);return <Link className={active?"active":undefined} href={href} key={href} title={collapsed?label:undefined}><span className="sidebar-item-icon">{label[0]}</span><span className="sidebar-item-label">{label}</span></Link>})}</nav><div className="dashboard-sidebar-footer"><LogoutButton /></div></aside>}

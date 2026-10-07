@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "../../../../lib/auth/require-user";
+import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
 
 export async function GET(request: Request) {
   const { user, db } = await requireUser("/account/wallet");
+  try { const rl = await consumeRateLimits(rulesFor("account-wallet", user.id, clientIp(request), 60)); if (!rl.allowed) return rateLimited(rl); } catch { return limiterUnavailable(); }
   const url = new URL(request.url); const page = Math.max(1, Number(url.searchParams.get("page") || "1") || 1); const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || "20") || 20));
   const { data: wallet, error: walletError } = await db.from("wallets").select("id,currency,created_at").eq("user_id", user.id).maybeSingle();
   if (walletError) return NextResponse.json({ error: "Unable to load wallet." }, { status: 500 });

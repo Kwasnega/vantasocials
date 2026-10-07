@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getPlatforms, getServicesByPlatform } from "../../data/catalog";
+import { getPlatformLogoUrl } from "../../lib/catalog/logo";
 
 type ShowcasePlatform = { id: string; name: string; logo: string };
 type ShowcaseService = { name: string; platformId: string; slug: string };
@@ -39,7 +40,7 @@ export function ServicesShowcase() {
 
   return <section className="services-showcase" id="services" aria-labelledby="services-heading">
     <header className="services-heading"><p className="section-kicker">BUILT FOR MOMENTUM</p><h2 id="services-heading">Grow faster<br />with our services</h2><p>Choose the platform and growth service that fits your next move. Clear pricing, simple setup, and no passwords.</p></header>
-    <div className="platform-switch" role="tablist" aria-label="Platform services">{platforms.map((item) => <button key={item.id} className={platform.id === item.id ? "active" : ""} onClick={() => { setPlatform(item); setService(catalogServices.find((entry) => entry.platformId === item.id)?.name ?? ""); }} role="tab" aria-selected={platform.id === item.id}><span>{item.logo}</span>{item.name} services</button>)}</div>
+    <div className="platform-switch" role="tablist" aria-label="Platform services">{platforms.map((item) => <button key={item.id} className={platform.id === item.id ? "active" : ""} onClick={() => { setPlatform(item); setService(catalogServices.find((entry) => entry.platformId === item.id)?.name ?? ""); }} role="tab" aria-selected={platform.id === item.id}><span className="showcase-platform-logo">{getPlatformLogoUrl(item.id) ? <img src={getPlatformLogoUrl(item.id) ?? ""} alt="" /> : item.logo}</span><span className="showcase-platform-label">{item.name}<small>Services</small></span></button>)}</div>
     <div className="featured-service"><div className="service-tabs" role="tablist" aria-label="Service categories">{services.map((item) => <button key={item.slug} className={service === item.name ? "active" : ""} onClick={() => setService(item.name)} role="tab" aria-selected={service === item.name}>{item.name}</button>)}</div><div className="featured-content"><div className="featured-copy"><p className="service-label">{platform.name} / {service}</p><h3>{platform.name} {service}</h3><p>Choose a quantity, add your public {service === "Followers" ? "username" : "post or profile link"}, and we’ll handle the rest with precision.</p><div className="service-action"><a href={`/services/${services.find((item) => item.name === service)?.slug ?? ""}`}>Start growing <ArrowUpRight /></a><span>Simple, secure checkout</span></div></div><div className="service-art" aria-hidden="true"><div className="art-halo" /><img src="/hero.png" alt="" /></div></div></div>
   </section>;
 }

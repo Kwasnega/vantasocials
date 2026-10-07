@@ -7,7 +7,10 @@ import { verifyPaystack } from "../../../../lib/payments/paystack";
 export async function POST(request: Request) {
   const secret = process.env.PAYSTACK_SECRET_KEY;
   if (!secret) return NextResponse.json({ error: "Webhook unavailable." }, { status: 503 });
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > 65536) return NextResponse.json({ error: "Payload too large." }, { status: 413 });
   const rawBody = await request.text();
+  if (Buffer.byteLength(rawBody, "utf8") > 65536) return NextResponse.json({ error: "Payload too large." }, { status: 413 });
   const signature = request.headers.get("x-paystack-signature") || "";
   const expected = crypto.createHmac("sha512", secret).update(rawBody).digest("hex");
   if (!signature || signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return NextResponse.json({ error: "Invalid signature." }, { status: 401 });

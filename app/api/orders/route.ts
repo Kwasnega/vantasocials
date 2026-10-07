@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../lib/supabase/server";
+import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../lib/security/rate-limit";
+import { normalizeTarget, getTargetContract } from "../../../lib/targets/contracts";
+import { effectiveQuantityRange, quantityInRange } from "../../../lib/targets/quantity";
 
 const MAX_TARGET_LENGTH = 2048;
 
@@ -27,6 +30,8 @@ function formatMoney(value: bigint) {
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  try { const rl = await consumeRateLimits(rulesFor("orders", user.id, clientIp(request), [5, 20])); if (!rl.allowed) return rateLimited(rl); } catch { return limiterUnavailable(); }
+  if (Number(request.headers.get("content-length") || 0) > 8192) return NextResponse.json({ error: "Request body is too large." }, { status: 413 });
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 }); }
@@ -39,21 +44,29 @@ export async function POST(request: Request) {
 
   try {
     const admin = createSupabaseAdminClient();
-    const { data: service, error: serviceError } = await admin.from("services").select("id,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active").eq("id", serviceId).maybeSingle();
+    const { data: service, error: serviceError } = await admin.from("services").select("id,slug,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active,provider,provider_service_id").eq("id", serviceId).maybeSingle();
     if (serviceError) throw serviceError;
     if (!service) return NextResponse.json({ error: "Service not found." }, { status: 404 });
     if (!service.active) return NextResponse.json({ error: "Service is not available." }, { status: 409 });
     const { data: platform, error: platformError } = await admin.from("platforms").select("id,active").eq("id", service.platform_id).maybeSingle();
     if (platformError) throw platformError;
     if (!platform || !platform.active) return NextResponse.json({ error: "Service is not available." }, { status: 409 });
-    if (!validTarget(service.target_type, targetValue)) return NextResponse.json({ error: "Target is invalid for this service." }, { status: 400 });
-    if (quantity <= 0 || quantity < service.min_quantity || quantity > service.max_quantity) return NextResponse.json({ error: `Quantity must be between ${service.min_quantity} and ${service.max_quantity}.` }, { status: 400 });
+    const contract = getTargetContract(service.slug);
+    const normalizedTarget = contract ? normalizeTarget(service.slug, targetValue) : (validTarget(service.target_type, targetValue) ? { valid: true as const, target: targetValue.trim() } : { valid: false as const, reason: "Target is invalid for this service." });
+    if (!normalizedTarget.valid) return NextResponse.json({ error: normalizedTarget.reason }, { status: 400 });
+    let quantityRange = effectiveQuantityRange(service.min_quantity, service.max_quantity);
+    if (service.provider === "reliablesmm" && service.provider_service_id) {
+      const { data: providerCatalog, error: providerCatalogError } = await admin.from("provider_catalog_services").select("provider_status,min_quantity,max_quantity").eq("provider", "reliablesmm").eq("provider_service_id", service.provider_service_id).maybeSingle();
+      if (providerCatalogError) throw providerCatalogError;
+      if (providerCatalog?.provider_status === "ACTIVE") quantityRange = effectiveQuantityRange(service.min_quantity, service.max_quantity, providerCatalog.min_quantity, providerCatalog.max_quantity);
+    }
+    if (!quantityInRange(quantity, quantityRange)) return NextResponse.json({ error: `Quantity must be between ${quantityRange.min} and ${quantityRange.max}.` }, { status: 400 });
 
     // Existing catalog semantics are provisional price-per-unit: rate × quantity, rounded to GHS cents.
     const unitScaled = decimalToScaled(String(service.selling_rate));
     const subtotalCents = (unitScaled * BigInt(quantity) + 5000n) / 10000n;
     const subtotal = formatMoney(subtotalCents);
-    const { data: order, error: orderError } = await admin.from("orders").insert({ user_id: user.id, service_id: service.id, target_type: service.target_type, target_value: targetValue, quantity, unit_price: String(service.selling_rate), subtotal, total: subtotal, currency: service.currency, status: "PENDING_PAYMENT", payment_status: "UNPAID", fulfillment_status: "NOT_STARTED" }).select("id,public_order_id,status,payment_status,fulfillment_status,service_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,created_at").single();
+    const { data: order, error: orderError } = await admin.from("orders").insert({ user_id: user.id, service_id: service.id, target_type: service.target_type, target_value: normalizedTarget.target, quantity, unit_price: String(service.selling_rate), subtotal, total: subtotal, currency: service.currency, status: "PENDING_PAYMENT", payment_status: "UNPAID", fulfillment_status: "NOT_STARTED" }).select("id,public_order_id,status,payment_status,fulfillment_status,service_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,created_at").single();
     if (orderError) throw orderError;
     return NextResponse.json(order, { status: 201 });
   } catch (error) {

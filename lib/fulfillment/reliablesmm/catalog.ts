@@ -4,7 +4,7 @@ import type { ReliableSMMService } from "./client";
 
 export type NormalizedReliableSMMService = {
   provider: "reliablesmm"; providerServiceId: string; name: string; type: string; category: string;
-  providerRate: string; pricingUnit: "per_1000" | "unknown"; currency: "USD"; minQuantity: number; maxQuantity: number;
+  providerRate: string; pricingUnit: "per_1000" | "per_order" | "unknown"; currency: "USD"; minQuantity: number; maxQuantity: number;
   refill: boolean; cancel: boolean; rawMetadata: Record<string, unknown>;
 };
 
@@ -14,7 +14,9 @@ function rate(value: unknown) { const result = String(value); if (!/^\d+(\.\d+)?
 
 export function normalizeReliableSMMService(service: ReliableSMMService): NormalizedReliableSMMService {
   const id = String(service.service); if (!/^\d+$/.test(id) || !service.name) throw new Error("Invalid ReliableSMM service.");
-  return { provider: "reliablesmm", providerServiceId: id, name: service.name, type: String(service.type || ""), category: String(service.category || ""), providerRate: rate(service.rate), pricingUnit: "per_1000", currency: "USD", minQuantity: integer(service.min), maxQuantity: integer(service.max), refill: flag(service.refill), cancel: flag(service.cancel), rawMetadata: { ...service } };
+  const unit = String(service.pricingUnit ?? service.unit ?? service.rate_unit ?? service.rateUnit ?? "").toLowerCase();
+  const pricingUnit = unit === "per_1000" ? "per_1000" : unit === "per_order" ? "per_order" : "unknown";
+  return { provider: "reliablesmm", providerServiceId: id, name: service.name, type: String(service.type || ""), category: String(service.category || ""), providerRate: rate(service.rate), pricingUnit, currency: "USD", minQuantity: integer(service.min), maxQuantity: integer(service.max), refill: flag(service.refill), cancel: flag(service.cancel), rawMetadata: { ...service } };
 }
 
 export function normalizeReliableSMMCatalog(services: ReliableSMMService[]) { return services.map(normalizeReliableSMMService); }

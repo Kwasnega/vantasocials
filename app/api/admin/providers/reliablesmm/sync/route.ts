@@ -16,7 +16,7 @@ export async function POST() {
     const catalog = normalizeReliableSMMCatalog(raw);
     const { data: existing } = await db.from("provider_catalog_services").select("provider_service_id").eq("provider", "reliablesmm");
     const existingIds = new Set((existing ?? []).map((row) => row.provider_service_id));
-    const rows = catalog.map((service) => ({ provider: service.provider, provider_service_id: service.providerServiceId, name: service.name, provider_rate: service.providerRate, provider_currency: service.currency, rate_unit: service.pricingUnit === "per_1000" ? "PER_1000" : "UNKNOWN", min_quantity: service.minQuantity, max_quantity: service.maxQuantity, refill_supported: service.refill, cancel_supported: service.cancel, provider_status: "ACTIVE", last_synced_at: new Date().toISOString(), raw_metadata: service.rawMetadata }));
+    const rows = catalog.map((service) => ({ provider: service.provider, provider_service_id: service.providerServiceId, name: service.name, provider_rate: service.providerRate, provider_currency: service.currency, rate_unit: service.pricingUnit === "per_1000" ? "PER_1000" : service.pricingUnit === "per_order" ? "PER_ORDER" : "UNKNOWN", min_quantity: service.minQuantity, max_quantity: service.maxQuantity, refill_supported: service.refill, cancel_supported: service.cancel, provider_status: "ACTIVE", last_synced_at: new Date().toISOString(), raw_metadata: service.rawMetadata }));
     const { error: upsertError } = rows.length ? await db.from("provider_catalog_services").upsert(rows, { onConflict: "provider,provider_service_id", ignoreDuplicates: false }) : { error: null };
     if (upsertError) throw new Error("Catalog persistence failed.");
     const ids = rows.map((row) => row.provider_service_id);

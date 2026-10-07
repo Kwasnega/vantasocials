@@ -12,5 +12,11 @@ assert.equal(calculatePricing({ providerRate: "0.5", providerRateUnit: "PER_UNIT
 assert.equal(calculatePricing({ providerRate: "0.5", providerRateUnit: "PER_ORDER", providerCurrency: "USD", fxRate: "10", sellingPricePerUnit: "0.01", sellingCurrency: "GHS", quantity: 100 }).providerCostUsd, "0.5");
 assert.throws(() => calculatePricing({ providerRate: "0.5", providerRateUnit: "PER_UNIT", providerCurrency: "USD", fxRate: "10", sellingPricePerUnit: "-1", sellingCurrency: "GHS", quantity: 100 }));
 assert.equal(vanta(10000).previewQuantity, 10000);
-assert.equal(calculatePricing({ providerRate: toPricingString(0.0901), providerRateUnit: "PER_1000", providerCurrency: "USD", fxRate: toPricingString(11), sellingPricePerUnit: toPricingString(0.01), sellingCurrency: "GHS", quantity: 10000 }).providerCostGhsPerUnit, "0.000991");
+assert.equal(calculatePricing({ providerRate: toPricingString(0.0901), providerRateUnit: "PER_1000", providerCurrency: "USD", fxRate: toPricingString(11), sellingPricePerUnit: toPricingString(0.01), sellingCurrency: "GHS", quantity: 10000 }).providerCostGhsPerBasis, "0.9911");
+const likes = calculatePricing({ providerRate: "0.0423", providerRateUnit: "PER_1000", providerCurrency: "USD", fxRate: "12", sellingPricePerUnit: "0.001", sellingCurrency: "GHS", quantity: 10000 });
+assert.equal(likes.providerCostGhsPerBasis, "0.5076");
+assert.equal(likes.providerCostGhs, "5.076");
+assert.equal(likes.grossProfitGhs, "4.924");
+assert.equal(likes.grossMarginPercent, "49.24");
+assert.equal(calculatePricing({ providerRate: "0.8", providerRateUnit: "PER_ORDER", providerCurrency: "USD", fxRate: "12", sellingPricePerUnit: "1", sellingCurrency: "GHS", quantity: 10000 }).providerCostGhsPerBasis, "9.6");
 console.log("pricing-engine-tests: passed");

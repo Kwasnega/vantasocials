@@ -1,6 +1,6 @@
 export type RateUnit = "PER_UNIT" | "PER_1000" | "PER_ORDER";
 export type PricingInputs = { providerRate: string; providerRateUnit: RateUnit; providerCurrency: "USD"; fxRate: string; sellingPricePerUnit: string; sellingCurrency: "GHS"; quantity: number };
-export type PricingResult = { previewQuantity: number; revenueGhs: string; providerCostUsd: string; providerCostGhs: string; providerCostGhsPerUnit: string; grossProfitGhs: string; grossProfitGhsPerUnit: string; grossMarginPercent: string | null; lossOrNoMargin: boolean };
+export type PricingResult = { previewQuantity: number; revenueGhs: string; providerCostUsd: string; providerCostGhs: string; providerCostGhsPerUnit: string; providerCostGhsPerBasis: string; grossProfitGhs: string; grossProfitGhsPerUnit: string; grossMarginPercent: string | null; lossOrNoMargin: boolean };
 export function toPricingString(value: string | number) { return String(value); }
 
 function scaled(value: string, digits = 6) { if (!/^\d+(\.\d+)?$/.test(value.trim())) throw new Error("Invalid monetary value."); const [whole, fraction = ""] = value.trim().split("."); return BigInt(whole) * 10n ** BigInt(digits) + BigInt(fraction.padEnd(digits, "0").slice(0, digits)); }
@@ -13,5 +13,6 @@ export function calculatePricing(input: PricingInputs): PricingResult {
   const providerCostUsd = input.providerRateUnit === "PER_1000" ? rate * BigInt(input.quantity) / 1000n : input.providerRateUnit === "PER_ORDER" ? rate : rate * BigInt(input.quantity);
   const providerCostGhs = providerCostUsd * fx / 1000000n;
   const revenue = selling * BigInt(input.quantity); const profit = revenue - providerCostGhs;
-  return { previewQuantity: input.quantity, revenueGhs: format(revenue), providerCostUsd: format(providerCostUsd), providerCostGhs: format(providerCostGhs), providerCostGhsPerUnit: format(providerCostGhs / BigInt(input.quantity)), grossProfitGhs: format(profit), grossProfitGhsPerUnit: format(profit / BigInt(input.quantity)), grossMarginPercent: revenue === 0n ? null : format(profit * 10000n / revenue, 2), lossOrNoMargin: providerCostGhs >= revenue };
+  const providerCostGhsPerBasis = format(input.providerRateUnit === "PER_1000" ? rate * fx / 1000000n : providerCostGhs);
+  return { previewQuantity: input.quantity, revenueGhs: format(revenue), providerCostUsd: format(providerCostUsd), providerCostGhs: format(providerCostGhs), providerCostGhsPerUnit: providerCostGhsPerBasis, providerCostGhsPerBasis, grossProfitGhs: format(profit), grossProfitGhsPerUnit: format(profit / BigInt(input.quantity)), grossMarginPercent: revenue === 0n ? null : format(profit * 10000n / revenue, 2), lossOrNoMargin: providerCostGhs >= revenue };
 }

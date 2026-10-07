@@ -466,3 +466,40 @@ h1 span { display:block; }.intro { max-width:615px; margin:27px auto 0; font-siz
   .temporary-photo:before { opacity:.11; animation-duration:35s; }
   .temporary-photo:after { opacity:.05; animation-duration:43s; }
 }
+
+/* The hero should read as active forward flight, not ambient drift. */
+.temporary-photo { animation-duration:11s; }
+.temporary-photo:before { animation-duration:14s; }
+.temporary-photo:after { animation-duration:18s; }
+@keyframes hero-forward-flight-tuned {
+  0% { transform:translate3d(2%,4%,0) scale(1.015); background-position:48% 56%; }
+  50% { transform:translate3d(-1.5%,-2%,0) scale(1.04); background-position:52% 47%; }
+  100% { transform:translate3d(-4%,-8%,0) scale(1.075); background-position:48% 38%; }
+}
+@keyframes hero-forward-layer-a-tuned {
+  0% { transform:translate3d(2%,4%,0) scale(1.01); background-position:48% 56%; }
+  100% { transform:translate3d(-4%,-8%,0) scale(1.08); background-position:52% 38%; }
+}
+@keyframes hero-forward-layer-b-tuned {
+  0% { transform:translate3d(-2%,4%,0) scale(1.015); background-position:52% 57%; }
+  100% { transform:translate3d(4%,-8%,0) scale(1.085); background-position:48% 37%; }
+}
+.hero-copy .intro {
+  position:relative;
+  width:max-content;
+  max-width:min(100%, 520px);
+  margin-inline:auto;
+  padding:9px 15px;
+  border-radius:12px;
+  color:#fff;
+  background:rgba(8,3,14,.48);
+  box-shadow:0 8px 28px rgba(0,0,0,.3);
+  text-shadow:0 2px 12px rgba(0,0,0,.95);
+  backdrop-filter:blur(3px);
+}
+@media (max-width:760px) {
+  .temporary-photo { animation-duration:13s; }
+  .temporary-photo:before { animation-duration:16s; }
+  .temporary-photo:after { animation-duration:20s; }
+  .hero-copy .intro { max-width:calc(100% - 10px); padding:8px 12px; }
+}

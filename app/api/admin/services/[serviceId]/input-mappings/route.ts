@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "../../../../../lib/admin/auth";
-import { ensureProviderMappingEligibility, extractApprovedProviderParameters, getServiceMappingInsertPayload, normalizeMappingDraft } from "../../../../../lib/admin/service-input-config";
-import { isReservedProviderTransportKey } from "../../../../../lib/fulfillment/reliablesmm/reserved-keys";
-import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
+import { requireAdmin } from "../../../../../../lib/admin/auth";
+import { ensureProviderMappingEligibility, extractApprovedProviderParameters, getServiceMappingInsertPayload, normalizeMappingDraft } from "../../../../../../lib/admin/service-input-config";
+import { isReservedProviderTransportKey } from "../../../../../../lib/fulfillment/reliablesmm/reserved-keys";
+import { createSupabaseAdminClient } from "../../../../../../lib/supabase/server";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ serviceId: string }> }) {
   const { user, admin } = await requireAdmin();
@@ -35,6 +35,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
   const db = createSupabaseAdminClient();
   const { data: service } = await db.from("services").select("id,slug,target_type,min_quantity,max_quantity,platforms(slug,name)").eq("id", serviceId).maybeSingle();
   if (!service) return NextResponse.json({ error: "VANTA service not found." }, { status: 404 });
+  const normalizedService = {
+    ...service,
+    platforms: Array.isArray(service.platforms) ? service.platforms[0] ?? null : service.platforms ?? null,
+  };
   const fieldId = typeof body.serviceInputFieldId === "string" ? body.serviceInputFieldId : typeof body.service_input_field_id === "string" ? body.service_input_field_id : "";
   if (!fieldId) return NextResponse.json({ error: "A VANTA input field is required." }, { status: 400 });
   const { data: field } = await db.from("service_input_fields").select("*").eq("service_id", serviceId).eq("id", fieldId).maybeSingle();
@@ -44,7 +48,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
   const { data: catalogRow } = await db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_service_id", catalogServiceId).eq("provider_status", "ACTIVE").maybeSingle();
   if (!catalogRow) return NextResponse.json({ error: "The selected ReliableSMM service is unavailable or inactive." }, { status: 409 });
   try {
-    ensureProviderMappingEligibility(service, catalogRow);
+    ensureProviderMappingEligibility(normalizedService, catalogRow);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "This provider service is not eligible for the selected VANTA service." }, { status: 409 });
   }

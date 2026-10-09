@@ -27,8 +27,14 @@ export async function POST(request: NextRequest) {
     try {
       if (!service?.slug) continue;
       const result = await fulfillPaidOrder({ orderId: order.id, vantaSlug: service.slug, targetType: order.target_type, targetValue: order.target_value, quantity: order.quantity });
-      console.info(JSON.stringify({ event: "fulfillment_job_processed", orderId: order.id, outcome: result.outcome }));
-      results.push({ orderId: order.id, outcome: result.outcome });
+      if (!result) {
+        console.info(JSON.stringify({ event: "fulfillment_job_skipped", orderId: order.id, serviceSlug: service.slug, outcome: null, reason: "fulfillPaidOrder returned null" }));
+        results.push({ orderId: order.id, outcome: null });
+        continue;
+      }
+      const outcome = "outcome" in result ? result.outcome : typeof result.status === "string" ? result.status : typeof result.attempt_status === "string" ? result.attempt_status : "UNKNOWN";
+      console.info(JSON.stringify({ event: "fulfillment_job_processed", orderId: order.id, outcome }));
+      results.push({ orderId: order.id, outcome });
     } catch (error) {
       console.error(JSON.stringify({ event: "fulfillment_job_failed", orderId: order.id, serviceSlug: service?.slug ?? null, error: error instanceof Error ? error.message : "FULFILLMENT_ERROR" }));
       results.push({ orderId: order.id, outcome: "FAILED" });

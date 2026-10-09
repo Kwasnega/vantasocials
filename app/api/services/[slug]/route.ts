@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCustomerService } from "../../../../lib/customer/service-contract";
+import { getCustomerService } from "../../../../lib/customer/service-contract-server";
 
 export async function GET(_: Request, { params }: { params: Promise<{ slug: string }> }) {
   try {

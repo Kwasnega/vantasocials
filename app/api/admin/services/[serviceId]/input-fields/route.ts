@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "../../../../../lib/admin/auth";
-import { getServiceFieldInsertPayload, normalizeFieldDraft } from "../../../../../lib/admin/service-input-config";
-import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
+import { requireAdmin } from "../../../../../../lib/admin/auth";
+import { getServiceFieldInsertPayload, normalizeFieldDraft } from "../../../../../../lib/admin/service-input-config";
+import { createSupabaseAdminClient } from "../../../../../../lib/supabase/server";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ serviceId: string }> }) {
   const { user, admin } = await requireAdmin();

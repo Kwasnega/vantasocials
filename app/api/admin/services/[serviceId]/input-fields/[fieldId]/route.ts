@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "../../../../../../lib/admin/auth";
-import { getServiceFieldInsertPayload, normalizeFieldDraft } from "../../../../../../lib/admin/service-input-config";
-import { createSupabaseAdminClient } from "../../../../../../lib/supabase/server";
+import { requireAdmin } from "../../../../../../../lib/admin/auth";
+import { getServiceFieldInsertPayload, normalizeFieldDraft } from "../../../../../../../lib/admin/service-input-config";
+import { createSupabaseAdminClient } from "../../../../../../../lib/supabase/server";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ serviceId: string; fieldId: string }> }) {
   const { user, admin } = await requireAdmin();
@@ -32,8 +32,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ se
     const field = normalizeFieldDraft(merged);
     const duplicateKey = await db.from("service_input_fields").select("id").eq("service_id", serviceId).eq("key", field.key).neq("id", fieldId).maybeSingle();
     if (duplicateKey.data) return NextResponse.json({ error: "A field with this key already exists for this service." }, { status: 409 });
-    const payload = getServiceFieldInsertPayload(field, serviceId);
-    delete payload.service_id;
+    const { service_id: _serviceId, ...payload } = getServiceFieldInsertPayload(field, serviceId);
     const { data, error } = await db.from("service_input_fields").update(payload).eq("id", fieldId).select("*").single();
     if (error) throw error;
     return NextResponse.json({ field: data });

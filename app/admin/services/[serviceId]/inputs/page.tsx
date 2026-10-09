@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { requireAdmin } from "../../../../lib/admin/auth";
-import { createSupabaseAdminClient } from "../../../../lib/supabase/server";
+import { requireAdmin } from "../../../../../lib/admin/auth";
+import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { ServiceInputConfiguration } from "./ServiceInputConfiguration";
 
 export default async function ServiceInputConfigurationPage({ params }: { params: Promise<{ serviceId: string }> }) {

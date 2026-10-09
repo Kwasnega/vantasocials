@@ -132,7 +132,7 @@ export function ensureProviderMappingEligibility(service: { slug: string; target
     platformSlug: service.platforms?.slug ?? null,
   });
   const compatibility = resolveProviderCompatibility(catalogRow.raw_metadata ?? null);
-  const platform = service.platforms ?? null;
+  const platform = service.platforms ? { slug: service.platforms.slug ?? undefined, name: service.platforms.name ?? undefined } : null;
   const platformCompatibility = resolveProviderPlatformCompatibility(catalogRow.raw_metadata ?? null, platform);
   const dynamicCompatibilityVerified = Boolean(
     compatibility.compatibility &&

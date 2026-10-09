@@ -1,8 +1,23 @@
-import type { CatalogService } from "../catalog/services";
 import { normalizeComments } from "../inputs/comments";
 import type { ServiceInputField, VantaInputType, ValidationConfig } from "../inputs/contracts";
 import { getInputTypeDefinition } from "../inputs/registry";
 import { validateServiceInputField } from "../inputs/validation";
+
+export type CatalogService = {
+  id: string;
+  platform_id: string;
+  name: string;
+  slug: string;
+  category: string;
+  description: string | null;
+  service_type: string;
+  target_type: string;
+  min_quantity: number;
+  max_quantity: number;
+  selling_rate: string;
+  currency: string;
+  active: boolean;
+};
 
 export type CustomerInputField = {
   key: string;
@@ -163,29 +178,3 @@ export function validateCustomerInputValue(field: CustomerInputField, value: unk
   }
 
   return { isValid: true, error: "", normalized: trimmed };
-}
-
-export async function getCustomerService(slug: string): Promise<CustomerService | null> {
-  const { getService: getCatalogService } = await import("../catalog/services");
-  const { createSupabaseServerClient } = await import("../supabase/server");
-
-  const baseService = await getCatalogService(slug);
-  if (!baseService) return null;
-  const supabase = await createSupabaseServerClient();
-  const { data: rows, error } = await supabase
-    .from("service_input_fields")
-    .select("key,label,input_type,required,display_order,placeholder,help_text,validation_config,active,schema_version")
-    .eq("service_id", baseService.id)
-    .eq("active", true)
-    .order("display_order", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (error) throw error;
-  if (!rows || rows.length === 0) return { ...baseService, inputFields: [] };
-
-  try {
-    return { ...baseService, inputFields: sanitizeCustomerInputFields(rows) };
-  } catch {
-    return { ...baseService, inputFields: [] };
-  }
-}

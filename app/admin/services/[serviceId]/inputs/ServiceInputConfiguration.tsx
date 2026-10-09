@@ -2,11 +2,22 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { VANTA_INPUT_TYPES } from "../../../../lib/inputs/contracts";
-import { TRANSFORM_REGISTRY } from "../../../../lib/inputs/transforms";
-import { extractApprovedProviderParameters } from "../../../../lib/admin/service-input-config";
+import { VANTA_INPUT_TYPES } from "../../../../../lib/inputs/contracts";
+import { TRANSFORM_REGISTRY } from "../../../../../lib/inputs/transforms";
+import { extractApprovedProviderParameters } from "../../../../../lib/admin/service-input-config";
 
-const fieldDefaults = {
+const fieldDefaults: {
+  key: string;
+  label: string;
+  inputType: string;
+  required: boolean;
+  displayOrder: number;
+  placeholder: string;
+  helpText: string;
+  validationConfig: { maxLength?: number; maxLines?: number; maxLineLength?: number };
+  schemaVersion: number;
+  active: boolean;
+} = {
   key: "",
   label: "",
   inputType: "url",

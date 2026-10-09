@@ -1,18 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../lib/supabase/server";
 import { validateDynamicOrderInput } from "../../../lib/orders/dynamic-input-validation";
-
-const MAX_TARGET_LENGTH = 2048;
+import { normalizeTarget } from "../../../lib/targets/contracts";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
-function validTarget(targetType: string, value: string) {
-  if (!value || value.length > MAX_TARGET_LENGTH || /[\u0000-\u001f\u007f]/.test(value)) return false;
-  if (["url", "post_url", "video_url"].includes(targetType)) {
-    try { const url = new URL(value); return url.protocol === "http:" || url.protocol === "https:"; } catch { return false; }
-  }
-  return true;
-}
 
 function decimalToScaled(value: string, scale = 6) {
   const normalized = value.trim();
@@ -37,13 +28,14 @@ export async function POST(request: Request) {
   const input = body as Record<string, unknown>;
   const serviceId = typeof input.service_id === "string" ? input.service_id : "";
   const targetValue = typeof input.target_value === "string" ? input.target_value.trim() : "";
+  let normalizedTarget: { valid: true; target: string } | null = null;
   const quantityCandidate = input.quantity;
   const quantity = typeof quantityCandidate === "number" ? quantityCandidate : Number(quantityCandidate);
   if (!serviceId || !Number.isSafeInteger(quantity) || quantity <= 0) return NextResponse.json({ error: "service_id and valid integer quantity are required." }, { status: 400 });
 
   try {
     const admin = createSupabaseAdminClient();
-    const { data: service, error: serviceError } = await admin.from("services").select("id,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active").eq("id", serviceId).maybeSingle();
+    const { data: service, error: serviceError } = await admin.from("services").select("id,slug,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active").eq("id", serviceId).maybeSingle();
     if (serviceError) throw serviceError;
     if (!service) return NextResponse.json({ error: "Service not found." }, { status: 404 });
     if (!service.active) return NextResponse.json({ error: "Service is not available." }, { status: 409 });
@@ -65,8 +57,10 @@ export async function POST(request: Request) {
       if (quantity < service.min_quantity || quantity > service.max_quantity) return NextResponse.json({ error: `Quantity must be between ${service.min_quantity} and ${service.max_quantity}.` }, { status: 400 });
     } else {
       if (!targetValue) return NextResponse.json({ error: "target_value and integer quantity are required for legacy services." }, { status: 400 });
-      if (!validTarget(service.target_type, targetValue)) return NextResponse.json({ error: "Target is invalid for this service." }, { status: 400 });
+      const result = normalizeTarget(service.slug, targetValue);
+      if (!result.valid) return NextResponse.json({ error: result.reason }, { status: 400 });
       if (quantity < service.min_quantity || quantity > service.max_quantity) return NextResponse.json({ error: `Quantity must be between ${service.min_quantity} and ${service.max_quantity}.` }, { status: 400 });
+      normalizedTarget = result;
     }
 
     const unitScaled = decimalToScaled(String(service.selling_rate));
@@ -76,7 +70,7 @@ export async function POST(request: Request) {
       user_id: user.id,
       service_id: service.id,
       target_type: service.target_type,
-      target_value: hasDynamicFields ? "dynamic-configured-order" : targetValue,
+      ...(hasDynamicFields ? { target_value: "dynamic-configured-order" } : { target_value: normalizedTarget!.target }),
       quantity,
       unit_price: String(service.selling_rate),
       subtotal,

@@ -9,6 +9,19 @@ export const targetContracts: Record<string, TargetContract> = {
 };
 
 export const getTargetContract = (slug: string) => targetContracts[slug] ?? null;
+export function getTargetContractForService(input: { slug: string; platformSlug?: string | null; targetType?: string | null }): TargetContract | null {
+  const legacy = getTargetContract(input.slug); if (legacy) return legacy;
+  const platform = String(input.platformSlug ?? "").toLowerCase(); const target = String(input.targetType ?? "");
+  if (platform === "instagram" && target === "url") return "INSTAGRAM_CONTENT";
+  if (platform === "tiktok" && target === "username") return "TIKTOK_PROFILE";
+  if (platform === "tiktok" && target === "video_url") return "TIKTOK_VIDEO";
+  if (platform === "youtube" && target === "channel") return "YOUTUBE_CHANNEL";
+  if (platform === "youtube" && target === "video_url") return "YOUTUBE_VIDEO";
+  if (platform === "facebook" && target === "page") return "FACEBOOK_PAGE";
+  if (platform === "facebook" && target === "post_url") return "FACEBOOK_POST";
+  if (platform === "facebook" && target === "video_url") return "FACEBOOK_VIDEO";
+  return null;
+}
 const fail = (reason: string): ContractResult => ({ valid: false, reason });
 function url(value: string) { try { const parsed = new URL(value.trim()); if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null; parsed.hostname = parsed.hostname.toLowerCase(); parsed.hash = ""; if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/$/, ""); return parsed; } catch { return null; } }
 function host(parsed: URL, domains: string[]) { return domains.includes(parsed.hostname); }

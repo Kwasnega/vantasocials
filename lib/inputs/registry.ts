@@ -1,0 +1,6 @@
+import { VANTA_INPUT_TYPES, type ValueShape, type VantaInputType, type ValidationRuleId } from "./contracts";
+export type InputTypeDefinition = { id: VantaInputType; validationRule: ValidationRuleId; valueShape: ValueShape; normalize: "trim" | "comments" };
+export const INPUT_TYPE_REGISTRY: Readonly<Record<VantaInputType, InputTypeDefinition>> = {
+  username: { id: "username", validationRule: "username", valueShape: "scalar", normalize: "trim" }, url: { id: "url", validationRule: "url", valueShape: "scalar", normalize: "trim" }, post_url: { id: "post_url", validationRule: "post_url", valueShape: "scalar", normalize: "trim" }, video_url: { id: "video_url", validationRule: "video_url", valueShape: "scalar", normalize: "trim" }, channel: { id: "channel", validationRule: "channel", valueShape: "scalar", normalize: "trim" }, page: { id: "page", validationRule: "page", valueShape: "scalar", normalize: "trim" }, comments: { id: "comments", validationRule: "comments", valueShape: "comments", normalize: "comments" },
+};
+export function getInputTypeDefinition(type: string) { return (VANTA_INPUT_TYPES as readonly string[]).includes(type) ? INPUT_TYPE_REGISTRY[type as VantaInputType] : null; }

@@ -7,6 +7,7 @@ export type ProviderOrderRequest = {
   providerServiceId: string;
   targetValue: string;
   quantity: number;
+  providerParams?: Record<string, unknown>;
 };
 
 export type ProviderOrderResult = {

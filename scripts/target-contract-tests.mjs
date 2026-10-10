@@ -46,8 +46,10 @@ assert.equal(quantityInRange(50000, { min: 100, max: 10000 }), false);
 assert.equal(quantityInRange(100000, effectiveQuantityRange(100, 100000)), true);
 
 const ordersRoute = fs.readFileSync("app/api/orders/route.ts", "utf8");
-assert.match(ordersRoute, /normalizeTarget/);
-assert.match(ordersRoute, /target_value:\s*normalizedTarget\.target/);
+assert.match(ordersRoute, /normalizeTarget\(service\.slug,\s*targetValue\)/);
+assert.match(ordersRoute, /normalizedTarget\s*=\s*result/);
+assert.match(ordersRoute, /dynamic-configured-order/);
+assert.match(ordersRoute, /normalizedTarget!\.target/);
 const fulfillmentAttempt = fs.readFileSync("lib/fulfillment/reliablesmm/attempt.ts", "utf8");
 assert.match(fulfillmentAttempt, /getPersistedTarget/);
 assert.match(fulfillmentAttempt, /Fulfillment target does not match the paid order/);

@@ -178,3 +178,4 @@ export function validateCustomerInputValue(field: CustomerInputField, value: unk
   }
 
   return { isValid: true, error: "", normalized: trimmed };
+}

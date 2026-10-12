@@ -80,7 +80,7 @@ export function CreateServiceCard({
   const [selectedPlatformId, setSelectedPlatformId] = useState<string>(defaultPlatformId || "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [createdInfo, setCreatedInfo] = useState<{ name: string; platformName: string } | null>(null);
+  const [createdInfo, setCreatedInfo] = useState<{ name: string; platformName: string; mapped: boolean } | null>(null);
 
   // Optional provider catalog browsing
   const [browseCatalog, setBrowseCatalog] = useState(false);
@@ -212,7 +212,7 @@ export function CreateServiceCard({
         targetType,
         minQuantity: minQty,
         maxQuantity: maxQty,
-        sellingRate: sellingRate.trim(),
+        sellingPricePer1000: sellingRate.trim(),
         currency: "GHS",
         description: description.trim(),
         serviceType: "standard",
@@ -232,10 +232,21 @@ export function CreateServiceCard({
       if (!res.ok) {
         throw new Error(body.error || "Failed to create service.");
       }
+      const mapped = Boolean(
+        selectedProviderRow &&
+        body.mapping?.provider === "reliablesmm" &&
+        String(body.mapping?.provider_service_id ?? "") === selectedProviderRow.provider_service_id &&
+        body.service?.provider === "reliablesmm" &&
+        String(body.service?.provider_service_id ?? "") === selectedProviderRow.provider_service_id
+      );
+      if (selectedProviderRow && !mapped) {
+        throw new Error("Service creation returned without a verified provider mapping. Check the service before retrying.");
+      }
 
       setCreatedInfo({
         name: serviceName,
         platformName: currentPlatform?.name || "Platform",
+        mapped,
       });
 
       // Clear fields
@@ -346,6 +357,7 @@ export function CreateServiceCard({
                 <p style={{ color: "#a99bb2", margin: "0 0 24px" }}>
                   <strong>{createdInfo.name}</strong> has been created and added to the{" "}
                   <strong>{createdInfo.platformName}</strong> card.
+                  {createdInfo.mapped ? " The provider mapping was saved and verified; the service remains inactive." : ""}
                 </p>
                 <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
                   <button
@@ -787,15 +799,15 @@ export function CreateServiceCard({
                       />
                     </label>
                     <label className="create-service-field">
-                      <span>Customer Price (GHS per unit) *</span>
+                      <span>Customer Price (GHS per 1,000 units) *</span>
                       <input
                         required
-                        placeholder="e.g. 0.015"
+                        placeholder="e.g. 5.00"
                         value={sellingRate}
                         onChange={(e) => setSellingRate(e.target.value)}
                       />
                       <small className="create-service-helper">
-                        Price in GHS per 1 unit {sellingRate && Number(sellingRate) > 0 ? `(₵${(Number(sellingRate) * 1000).toFixed(2)} / 1,000)` : ""}
+                        Enter the total customer price for 1,000 units.
                       </small>
                     </label>
                   </div>

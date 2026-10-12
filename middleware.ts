@@ -3,6 +3,8 @@ import { createServerClient } from "@supabase/ssr";
 
 export function shouldSkipSupabaseSessionRefresh(method: string, pathname: string) {
   if (method.toUpperCase() !== "GET") return false;
+  if (pathname === "/login" || pathname === "/signup") return true;
+  if (pathname === "/api/auth/redirect") return true;
   if (pathname === "/api/homepage/catalog" || pathname === "/api/platforms" || pathname === "/api/services") {
     return true;
   }

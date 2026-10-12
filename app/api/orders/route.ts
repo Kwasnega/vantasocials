@@ -6,23 +6,11 @@ import { validateDynamicFieldValues, validateDynamicOrderInput } from "../../../
 import type { CustomerInputField } from "../../../lib/customer/service-contract";
 import { normalizeTarget, getTargetContract } from "../../../lib/targets/contracts";
 import { effectiveQuantityRange, quantityInRange } from "../../../lib/targets/quantity";
+import { assertPayableOrderTotal, calculateCustomerTotal, normalizeInternalUnitRate } from "../../../lib/pricing/customer-price";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const IDEMPOTENCY_CONSTRAINT = "orders_user_id_idempotency_key_key";
 const IDEMPOTENCY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-function decimalToScaled(value: string, scale = 6) {
-  const normalized = value.trim();
-  if (!/^\d+(\.\d+)?$/.test(normalized)) throw new Error("Invalid rate");
-  const [whole, fraction = ""] = normalized.split(".");
-  return BigInt(whole) * 10n ** BigInt(scale) + BigInt(fraction.padEnd(scale, "0").slice(0, scale));
-}
-
-function formatMoney(value: bigint) {
-  const whole = value / 100n;
-  const cents = (value % 100n).toString().padStart(2, "0");
-  return `${whole}.${cents}`;
-}
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -157,8 +145,15 @@ export async function POST(request: Request) {
       }
     }
 
-    const { count: activeDynamicFieldCount } = await admin.from("service_input_fields").select("id", { count: "exact", head: true }).eq("service_id", service.id).eq("active", true);
-    const hasDynamicFields = (activeDynamicFieldCount ?? 0) > 0;
+    const { data: activeDynamicFields, error: dynamicFieldsError } = await admin
+      .from("service_input_fields")
+      .select("id,key,label,input_type,required,display_order,placeholder,help_text,validation_config,active,schema_version")
+      .eq("service_id", service.id)
+      .eq("active", true)
+      .order("display_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (dynamicFieldsError) throw dynamicFieldsError;
+    const hasDynamicFields = (activeDynamicFields ?? []).length > 0;
 
     let dynamicValidation:
       | { schemaVersion: number; schemaSnapshot: unknown[]; validatedValues: Record<string, unknown> }
@@ -167,7 +162,7 @@ export async function POST(request: Request) {
     if (hasDynamicFields) {
       const rawDynamicValues = isPlainObject(input.input_values) ? input.input_values : isPlainObject(input.values) ? input.values : null;
       if (!rawDynamicValues) return NextResponse.json({ error: "input_values object is required for this service." }, { status: 400 });
-      dynamicValidation = await validateDynamicOrderInput(service.id, rawDynamicValues);
+      dynamicValidation = validateDynamicOrderInput(activeDynamicFields ?? [], rawDynamicValues);
       if (!quantityInRange(quantity, quantityRange)) {
         return NextResponse.json({ error: `Quantity must be between ${quantityRange.min} and ${quantityRange.max}.` }, { status: 400 });
       }
@@ -182,9 +177,13 @@ export async function POST(request: Request) {
       normalizedTarget = result;
     }
 
-    const unitScaled = decimalToScaled(String(service.selling_rate));
-    const subtotalCents = (unitScaled * BigInt(quantity) + 5000n) / 10000n;
-    const subtotal = formatMoney(subtotalCents);
+    const unitPrice = normalizeInternalUnitRate(service.selling_rate);
+    const subtotal = calculateCustomerTotal(unitPrice, quantity);
+    try {
+      assertPayableOrderTotal(subtotal);
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Order total is outside the supported payment range." }, { status: 400 });
+    }
     const fingerprint = orderIntentFingerprint(hasDynamicFields
       ? { service_id: service.id, quantity, input_values: dynamicValidation!.validatedValues }
       : { service_id: service.id, quantity, target_value: normalizedTarget!.target });
@@ -194,7 +193,7 @@ export async function POST(request: Request) {
       target_type: service.target_type,
       ...(hasDynamicFields ? { target_value: "dynamic-configured-order" } : { target_value: normalizedTarget!.target }),
       quantity,
-      unit_price: String(service.selling_rate),
+      unit_price: unitPrice,
       subtotal,
       total: subtotal,
       currency: service.currency,

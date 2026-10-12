@@ -183,7 +183,7 @@ export default function Home() {
           <div><h3>Platforms</h3><a href="#services">Instagram</a><a href="#services">TikTok</a><a href="#services">YouTube</a><a href="#services">Facebook</a><a href="#services">X</a><a href="#services">Telegram</a></div>
           <div><h3>Services</h3><a href="#services">Followers</a><a href="#services">Likes</a><a href="#services">Views</a><a href="#services">Comments</a><a href="#services">Engagement</a></div>
           <div><h3>VANTA</h3><a href="#how">How it works</a><a href="#delivery-heading">Delivery options</a><a href="#guarantees-heading">Guarantees</a><a href="mailto:vantasocials62@gmail.com">Support</a></div>
-          <div><h3>Legal</h3><a href="#">Terms of service</a><a href="#">Privacy policy</a><a href="#">Refund policy</a></div>
+          <div><h3>Legal</h3><Link href="/terms">Terms of service</Link><Link href="/privacy-policy">Privacy policy</Link><Link href="/refund-policy">Refund policy</Link><Link href="/contact">Contact</Link></div>
         </nav>
       </div>
     </footer>

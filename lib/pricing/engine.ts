@@ -57,6 +57,9 @@ export function calculatePricing(input: PricingInputs): PricingResult {
   if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0) {
     throw new Error("Quantity must be positive.");
   }
+  if (!["PER_UNIT", "PER_1000", "PER_ORDER"].includes(input.providerRateUnit)) {
+    throw new Error(`Unsupported provider pricing unit: ${String(input.providerRateUnit)}.`);
+  }
 
   const rate = scaled(input.providerRate);
   const fx = scaled(input.fxRate);
@@ -82,11 +85,8 @@ export function calculatePricing(input: PricingInputs): PricingResult {
   // Convert to GHS: (costUsd * fx) / 1e6
   const providerCostGhs = (providerCostUsd * fx) / 1000000n;
 
-  // Customer revenue in GHS: selling * qty (or selling for PER_ORDER)
-  const revenueGhs =
-    input.providerRateUnit === "PER_ORDER"
-      ? selling
-      : selling * qty;
+  // Customer pricing is per unit and is independent of provider billing basis.
+  const revenueGhs = selling * qty;
 
   const profit = revenueGhs - providerCostGhs;
 
@@ -112,65 +112,33 @@ export function calculatePricing(input: PricingInputs): PricingResult {
       ? null
       : format((profit * 10000n) / providerCostGhs, 2);
 
-  // For PER_1000 and PER_UNIT, calculate per-1,000 metrics and 10,000-unit projection
-  let providerCostGhsPer1000: string | null = null;
-  let sellingPriceGhsPer1000: string | null = null;
-  let grossProfitGhsPer1000: string | null = null;
-  let projection10k: PricingResult["projection10k"] = null;
+  const sellingPer1000Big = selling * 1000n;
+  const providerCostPer1000Big = input.providerRateUnit === "PER_ORDER"
+    ? null
+    : input.providerRateUnit === "PER_1000"
+    ? (rate * fx) / 1000000n
+    : ((rate * fx) / 1000000n) * 1000n;
+  const sellingPriceGhsPer1000 = format(sellingPer1000Big);
+  const providerCostGhsPer1000 = providerCostPer1000Big === null ? null : format(providerCostPer1000Big);
+  const grossProfitGhsPer1000 = providerCostPer1000Big === null
+    ? null
+    : format(sellingPer1000Big - providerCostPer1000Big);
 
-  if (input.providerRateUnit === "PER_1000") {
-    // rate is per 1000
-    const costPer1000Big = (rate * fx) / 1000000n;
-    const revPer1000Big = selling * 1000n;
-    const profitPer1000Big = revPer1000Big - costPer1000Big;
-
-    providerCostGhsPer1000 = format(costPer1000Big);
-    sellingPriceGhsPer1000 = format(revPer1000Big);
-    grossProfitGhsPer1000 = format(profitPer1000Big);
-
-    // 10,000 units = 10 * 1,000 units
-    const cost10k = costPer1000Big * 10n;
-    const rev10k = revPer1000Big * 10n;
-    const profit10k = rev10k - cost10k;
-
-    projection10k = {
-      quantity: 10000,
-      revenueGhs: format(rev10k),
-      providerCostGhs: format(cost10k),
-      profitGhs: format(profit10k),
-    };
-  } else if (input.providerRateUnit === "PER_UNIT") {
-    const costPerUnitBig = (rate * fx) / 1000000n;
-    const costPer1000Big = costPerUnitBig * 1000n;
-    const revPer1000Big = selling * 1000n;
-    const profitPer1000Big = revPer1000Big - costPer1000Big;
-
-    providerCostGhsPer1000 = format(costPer1000Big);
-    sellingPriceGhsPer1000 = format(revPer1000Big);
-    grossProfitGhsPer1000 = format(profitPer1000Big);
-
-    const cost10k = costPer1000Big * 10n;
-    const rev10k = revPer1000Big * 10n;
-    const profit10k = rev10k - cost10k;
-
-    projection10k = {
-      quantity: 10000,
-      revenueGhs: format(rev10k),
-      providerCostGhs: format(cost10k),
-      profitGhs: format(profit10k),
-    };
-  } else if (input.providerRateUnit === "PER_ORDER") {
-    // PER_ORDER does not have 10k unit projection
-    providerCostGhsPer1000 = null;
-    sellingPriceGhsPer1000 = null;
-    grossProfitGhsPer1000 = null;
-    projection10k = null;
-  }
-
-  const profitPerUnit =
-    input.providerRateUnit === "PER_ORDER"
-      ? profit
-      : profit / qty;
+  const projectionQuantity = 10000n;
+  const projectionProviderCostUsd = input.providerRateUnit === "PER_1000"
+    ? (rate * projectionQuantity) / 1000n
+    : input.providerRateUnit === "PER_ORDER"
+    ? rate
+    : rate * projectionQuantity;
+  const projectionProviderCostGhs = (projectionProviderCostUsd * fx) / 1000000n;
+  const projectionRevenueGhs = selling * projectionQuantity;
+  const projection10k: PricingResult["projection10k"] = {
+    quantity: 10000,
+    revenueGhs: format(projectionRevenueGhs),
+    providerCostGhs: format(projectionProviderCostGhs),
+    profitGhs: format(projectionRevenueGhs - projectionProviderCostGhs),
+  };
+  const profitPerUnit = profit / qty;
 
   return {
     previewQuantity: input.quantity,

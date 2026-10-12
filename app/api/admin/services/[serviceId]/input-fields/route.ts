@@ -25,12 +25,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   const db = createSupabaseAdminClient();
-  const { data: service } = await db.from("services").select("id").eq("id", serviceId).maybeSingle();
+  const { data: service, error: serviceError } = await db.from("services").select("id").eq("id", serviceId).maybeSingle();
+  if (serviceError) return NextResponse.json({ error: "Service lookup failed." }, { status: 500 });
   if (!service) return NextResponse.json({ error: "VANTA service not found." }, { status: 404 });
 
   try {
     const field = normalizeFieldDraft(body);
-    const { data: duplicate } = await db.from("service_input_fields").select("id").eq("service_id", serviceId).eq("key", field.key).maybeSingle();
+    const { data: duplicate, error: duplicateError } = await db.from("service_input_fields").select("id").eq("service_id", serviceId).eq("key", field.key).maybeSingle();
+    if (duplicateError) return NextResponse.json({ error: "Unable to check for a duplicate field." }, { status: 500 });
     if (duplicate) return NextResponse.json({ error: "A field with this key already exists for this service." }, { status: 409 });
     const payload = getServiceFieldInsertPayload(field, serviceId);
     const { data, error } = await db.from("service_input_fields").insert(payload).select("*").single();

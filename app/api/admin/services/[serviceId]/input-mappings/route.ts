@@ -10,11 +10,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ser
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   const { serviceId } = await params;
   const db = createSupabaseAdminClient();
-  const [{ data: mappings }, { data: catalog }, { data: fields }] = await Promise.all([
+  const [
+    { data: mappings, error: mappingsError },
+    { data: catalog, error: catalogError },
+    { data: fields, error: fieldsError },
+  ] = await Promise.all([
     db.from("service_provider_input_mappings").select("*").eq("service_id", serviceId).order("created_at", { ascending: false }),
     db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,raw_metadata").eq("provider", "reliablesmm").eq("provider_status", "ACTIVE").order("provider_service_id"),
     db.from("service_input_fields").select("id,key,label,input_type").eq("service_id", serviceId).order("display_order", { ascending: true }),
   ]);
+  if (mappingsError || catalogError || fieldsError) {
+    return NextResponse.json({ error: "Unable to load service input mapping data." }, { status: 500 });
+  }
   return NextResponse.json({
     mappings: mappings ?? [],
     fields: fields ?? [],
@@ -33,7 +40,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   const db = createSupabaseAdminClient();
-  const { data: service } = await db.from("services").select("id,slug,target_type,min_quantity,max_quantity,platforms(slug,name)").eq("id", serviceId).maybeSingle();
+  const { data: service, error: serviceError } = await db.from("services").select("id,slug,target_type,min_quantity,max_quantity,platforms(slug,name)").eq("id", serviceId).maybeSingle();
+  if (serviceError) return NextResponse.json({ error: "Service lookup failed." }, { status: 500 });
   if (!service) return NextResponse.json({ error: "VANTA service not found." }, { status: 404 });
   const normalizedService = {
     ...service,
@@ -41,11 +49,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
   };
   const fieldId = typeof body.serviceInputFieldId === "string" ? body.serviceInputFieldId : typeof body.service_input_field_id === "string" ? body.service_input_field_id : "";
   if (!fieldId) return NextResponse.json({ error: "A VANTA input field is required." }, { status: 400 });
-  const { data: field } = await db.from("service_input_fields").select("*").eq("service_id", serviceId).eq("id", fieldId).maybeSingle();
+  const { data: field, error: fieldError } = await db.from("service_input_fields").select("*").eq("service_id", serviceId).eq("id", fieldId).maybeSingle();
+  if (fieldError) return NextResponse.json({ error: "Input field lookup failed." }, { status: 500 });
   if (!field) return NextResponse.json({ error: "This VANTA field does not belong to the selected service." }, { status: 409 });
   const catalogServiceId = typeof body.providerServiceId === "string" ? body.providerServiceId : typeof body.provider_service_id === "string" ? body.provider_service_id : "";
   if (!catalogServiceId) return NextResponse.json({ error: "A ReliableSMM service is required." }, { status: 400 });
-  const { data: catalogRow } = await db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_service_id", catalogServiceId).eq("provider_status", "ACTIVE").maybeSingle();
+  const { data: catalogRow, error: catalogError } = await db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_service_id", catalogServiceId).eq("provider_status", "ACTIVE").maybeSingle();
+  if (catalogError) return NextResponse.json({ error: "Provider catalog lookup failed." }, { status: 500 });
   if (!catalogRow) return NextResponse.json({ error: "The selected ReliableSMM service is unavailable or inactive." }, { status: 409 });
   try {
     ensureProviderMappingEligibility(normalizedService, catalogRow);
@@ -72,7 +82,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
       field,
     );
 
-    const { data: existingActive } = await db.from("service_provider_input_mappings").select("id").eq("service_id", serviceId).eq("service_input_field_id", fieldId).eq("provider", "reliablesmm").eq("provider_service_id", catalogServiceId).eq("schema_version", mapping.mappingSchemaVersion).eq("active", true).maybeSingle();
+    const { data: existingActive, error: existingError } = await db.from("service_provider_input_mappings").select("id").eq("service_id", serviceId).eq("service_input_field_id", fieldId).eq("provider", "reliablesmm").eq("provider_service_id", catalogServiceId).eq("schema_version", mapping.mappingSchemaVersion).eq("active", true).maybeSingle();
+    if (existingError) return NextResponse.json({ error: "Unable to check for an existing provider input mapping." }, { status: 500 });
     if (existingActive) return NextResponse.json({ error: "An active mapping already exists for this VANTA field and provider service." }, { status: 409 });
 
     const payload = getServiceMappingInsertPayload(mapping, serviceId, fieldId);

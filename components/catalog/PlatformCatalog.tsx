@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { CatalogPlatform } from "../../lib/catalog/platforms";
 import type { CatalogService } from "../../lib/catalog/services";
 import { getPlatformLogoUrl } from "../../lib/catalog/logo";
+import { calculateCustomerTotal } from "../../lib/pricing/customer-price";
 
 export default function PlatformCatalog({ platforms, services }: { platforms: CatalogPlatform[]; services: CatalogService[] }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -30,7 +31,7 @@ export default function PlatformCatalog({ platforms, services }: { platforms: Ca
             <span>
               <b>{service.name}</b>
               <small>
-                {service.currency} {(Number(service.selling_rate) * 1000).toFixed(2)} / 1k · Range: {service.min_quantity.toLocaleString()}–{service.max_quantity.toLocaleString()}
+                {service.currency} {calculateCustomerTotal(service.selling_rate, 1000)} / 1k · Range: {service.min_quantity.toLocaleString()}–{service.max_quantity.toLocaleString()}
               </small>
             </span>
             <Link href={`/services/${service.slug}`}>Start order <b>↗</b></Link>

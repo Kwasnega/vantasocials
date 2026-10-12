@@ -1,15 +1,10 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
+import { RedirectAuthenticatedUser } from "../../components/auth/RedirectAuthenticatedUser";
 import { SignupForm } from "../../components/auth/AuthForm";
-import { getCurrentUser } from "../../lib/supabase/server";
 
 export default async function SignupPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
-  const user = await getCurrentUser();
   const { next } = await searchParams;
-  if (user) {
-    redirect(next && next.startsWith("/") ? next : "/account");
-  }
   return <main className="login-page signup-page">
     <section className="login-atmosphere" aria-hidden="true">
       <Link className="login-brand" href="/">VANTA</Link>
@@ -19,9 +14,10 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
     </section>
     <section className="login-content">
       <div className="login-heading"><p className="section-kicker">ACCOUNT</p><h1>Sign up</h1><p>Create your VANTA account and keep your next move in motion.</p></div>
+      <Suspense fallback={null}><RedirectAuthenticatedUser next={next} /></Suspense>
       <Suspense><SignupForm /></Suspense>
       <p className="login-signup">Already have an account? <Link href="/login">Log in</Link></p>
-      <p className="login-legal">By creating an account, you agree to VANTA’s terms and privacy policy.</p>
+      <p className="login-legal">By creating an account, you agree to VANTA’s <Link href="/terms">terms</Link> and <Link href="/privacy-policy">privacy policy</Link>.</p>
     </section>
   </main>;
 }

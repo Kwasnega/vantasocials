@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { AuthChangeEvent, Session } from "@supabase/auth-js";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 
 function safeNext(value: string | null) {
@@ -25,14 +26,65 @@ export function LoginForm() {
     }
     setLoading(true);
 
+    let unsubscribeAuthListener = () => {};
     try {
       const supabase = createSupabaseBrowserClient();
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const { data: authListener } = supabase.auth.onAuthStateChange((
+        event: AuthChangeEvent,
+        session: Session | null,
+      ) => {
+        if (event !== "SIGNED_IN" || !session?.user) return;
+        const requestedNext = safeNext(searchParams.get("next"));
+        window.location.replace(requestedNext !== "/" ? requestedNext : "/account");
       });
+      unsubscribeAuthListener = () => authListener.subscription.unsubscribe();
+
+      let signInTimeoutId: number | undefined;
+      const signInResult = await Promise.race([
+        supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        }).then((result: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>) => ({
+          timedOut: false as const,
+          result,
+        })),
+        new Promise<{ timedOut: true }>((resolve) => {
+          signInTimeoutId = window.setTimeout(() => resolve({ timedOut: true }), 15000);
+        }),
+      ]);
+      if (signInTimeoutId !== undefined) window.clearTimeout(signInTimeoutId);
+
+      if (signInResult.timedOut) {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+        try {
+          const response = await fetch("/api/auth/redirect", {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          if (response.ok) {
+            const body = (await response.json()) as { redirectTo?: string };
+            if (body.redirectTo) {
+              window.location.replace(safeNext(body.redirectTo));
+              return;
+            }
+          }
+        } catch {
+          // The session may not have been saved; show a retryable error below.
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+
+        unsubscribeAuthListener();
+        setError("Sign-in is taking longer than expected. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      const { data, error: authError } = signInResult.result;
 
       if (authError) {
+        unsubscribeAuthListener();
         const msg = authError.message.toLowerCase();
         if (msg.includes("email not confirmed")) {
           setError("Please confirm your email address before signing in. Check your inbox or spam folder for the confirmation link.");
@@ -46,29 +98,20 @@ export function LoginForm() {
       }
 
       if (!data.user) {
+        unsubscribeAuthListener();
         setError("Sign-in succeeded but user session could not be established.");
         setLoading(false);
         return;
       }
 
-      // Determine destination
+      unsubscribeAuthListener();
       const requestedNext = safeNext(searchParams.get("next"));
-      let destination = requestedNext !== "/" ? requestedNext : "/account";
-
-      try {
-        const redirectUrl = requestedNext && requestedNext !== "/" ? `/api/auth/redirect?next=${encodeURIComponent(requestedNext)}` : "/api/auth/redirect";
-        const response = await fetch(redirectUrl);
-        if (response.ok) {
-          const body = (await response.json()) as { redirectTo?: string };
-          if (body.redirectTo) destination = body.redirectTo;
-        }
-      } catch {
-        // Fallback to /account
-      }
-
-      // Hard redirect to guarantee fresh cookies are sent to server components
-      window.location.href = destination || "/account";
+      const destination = requestedNext !== "/"
+        ? requestedNext
+        : "/account";
+      window.location.replace(destination);
     } catch (err) {
+      unsubscribeAuthListener();
       setError(err instanceof Error ? err.message : "An unexpected error occurred. Please try again.");
       setLoading(false);
     }

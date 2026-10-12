@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { calculatePricing, type PricingResult, type RateUnit } from "../../../lib/pricing/engine";
+import { adminPricePer1000ToUnitRate, unitRateToAdminPricePer1000 } from "../../../lib/pricing/customer-price";
 
 type Row = {
   provider_service_id: string;
@@ -41,6 +42,7 @@ export function MappingControl({
   const [selected, setSelected] = useState<Row | null>(null);
   const selectedIdentity = useRef<string | null>(null);
   const [showBlocked, setShowBlocked] = useState(false);
+  const [candidateLoadError, setCandidateLoadError] = useState(false);
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -54,6 +56,7 @@ export function MappingControl({
     if (!open || step !== 1) return;
     let cancelled = false;
     setBusy(true);
+    setCandidateLoadError(false);
     fetch(`/api/admin/provider-catalog?vanta_slug=${encodeURIComponent(serviceSlug)}`)
       .then(async (r) => {
         const b = await r.json();
@@ -65,14 +68,19 @@ export function MappingControl({
             next.find(
               (row: Row) =>
                 wanted === identity(row) &&
-                (row.eligibility === "ELIGIBLE" || row.eligibility === "MANUAL_REVIEW")
+                row.eligibility === "ELIGIBLE"
             ) ?? null;
           setRows(next);
           setSelected(match);
           selectedIdentity.current = match ? identity(match) : null;
         }
       })
-      .catch((e) => !cancelled && setMessage(e instanceof Error ? e.message : "Candidate lookup failed."))
+      .catch((e) => {
+        if (!cancelled) {
+          setCandidateLoadError(true);
+          setMessage(e instanceof Error ? e.message : "Candidate lookup failed.");
+        }
+      })
       .finally(() => !cancelled && setBusy(false));
     return () => {
       cancelled = true;
@@ -83,17 +91,23 @@ export function MappingControl({
     if (!open || step !== 2) return;
     let cancelled = false;
     fetch(`/api/admin/pricing?service_id=${encodeURIComponent(serviceId)}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.error || "Pricing data could not be loaded.");
+        return body;
+      })
       .then((b) => {
         if (!cancelled) {
           setFx(b.fxRate ?? passedFxRate ?? null);
           if (b.fxSource) setFxSource(b.fxSource);
           if (b.fxUpdatedAt) setFxUpdatedAt(b.fxUpdatedAt);
           const service = (b.services ?? []).find((item: { id: string }) => item.id === serviceId);
-          setPrice(service?.selling_rate == null ? "" : String(service.selling_rate));
+          setPrice(service?.selling_rate == null ? "" : unitRateToAdminPricePer1000(service.selling_rate));
         }
       })
-      .catch(() => {});
+      .catch((error) => {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : "Pricing data could not be loaded.");
+      });
     return () => {
       cancelled = true;
     };
@@ -121,7 +135,7 @@ export function MappingControl({
         providerRateUnit: unit as RateUnit,
         providerCurrency: "USD",
         fxRate: String(fx),
-        sellingPricePerUnit: price,
+        sellingPricePerUnit: adminPricePer1000ToUnitRate(price),
         sellingCurrency: "GHS",
         quantity: 10000,
       });
@@ -150,7 +164,7 @@ export function MappingControl({
         body: JSON.stringify({
           service_id: serviceId,
           provider_service_id: selected.provider_service_id,
-          selling_price: price,
+          sellingPricePer1000: price,
         }),
       });
       const b = await r.json();
@@ -220,6 +234,8 @@ export function MappingControl({
                 <div className="mapping-results">
                   {busy ? (
                     <p className="mapping-empty">Loading matching services…</p>
+                  ) : candidateLoadError ? (
+                    <p className="mapping-empty">Provider candidate data could not be loaded. The empty list is not a compatibility result.</p>
                   ) : visible.length === 0 ? (
                     <div style={{ textAlign: "center", padding: "28px 10px" }}>
                       <p className="mapping-empty" style={{ margin: "0 0 12px" }}>
@@ -242,7 +258,7 @@ export function MappingControl({
                     visible.map((row) => (
                       <button
                         type="button"
-                        disabled={row.eligibility === "BLOCKED"}
+                        disabled={row.eligibility !== "ELIGIBLE"}
                         className={`mapping-option${
                           selected?.provider_service_id === row.provider_service_id
                             ? " is-selected"
@@ -311,7 +327,7 @@ export function MappingControl({
                   <button
                     type="button"
                     className="mapping-confirm"
-                    disabled={!selected || selected.eligibility === "BLOCKED"}
+                    disabled={!selected || selected.eligibility !== "ELIGIBLE"}
                     onClick={() => setStep(2)}
                   >
                     Continue to Pricing →
@@ -365,19 +381,19 @@ export function MappingControl({
 
                   {/* Customer Selling Price Input */}
                   <label className="pricing-popup-input">
-                    <span>VANTA CUSTOMER SELLING PRICE (GHS / UNIT)</span>
+                    <span>VANTA CUSTOMER SELLING PRICE (GHS PER 1,000 UNITS)</span>
                     <div>
                       <b>₵</b>
                       <input
                         inputMode="decimal"
                         value={price}
                         onChange={(e) => setPrice(e.target.value)}
-                        placeholder="e.g. 0.015"
+                        placeholder="e.g. 5.00"
                         aria-label="VANTA customer price"
                       />
                     </div>
                     <small style={{ color: "#a99bb2", fontSize: "12px", marginTop: "4px" }}>
-                      Customers pay this price directly. {unit === "PER_1000" && price ? `(₵${(Number(price) * 1000).toFixed(2)} per 1,000 units)` : ""}
+                      Customers pay this amount per 1,000 units. Provider cost uses the provider’s own billing unit.
                     </small>
                   </label>
 
@@ -387,10 +403,10 @@ export function MappingControl({
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", width: "100%" }}>
                         <div>
                           <span>
-                            {unit === "PER_1000" ? "Profit / 1,000 units" : unit === "PER_ORDER" ? "Profit / order" : "Profit / unit"}
+                            {unit === "PER_ORDER" ? "Estimated profit at 10,000 units" : "Profit / 1,000 units"}
                           </span>
                           <strong style={{ color: economics.lossOrNoMargin ? "#ff9dab" : "#78dfb4" }}>
-                            ₵{unit === "PER_1000" ? economics.grossProfitGhsPer1000 : economics.grossProfitGhsPerUnit}
+                            ₵{unit === "PER_ORDER" ? economics.projection10k?.profitGhs : economics.grossProfitGhsPer1000}
                           </strong>
                         </div>
                         <div>

@@ -32,7 +32,7 @@ function loadCheckoutModule({ user, records = {}, errors = {}, holdReads = false
         },
         async maybeSingle() {
           started.push(table);
-          if (holdReads && ["platforms", "wallets"].includes(table)) await readGate;
+          if (holdReads && ["orders", "wallets"].includes(table)) await readGate;
           completed.push(table);
           let data = records[table] ?? null;
           if (
@@ -41,6 +41,14 @@ function loadCheckoutModule({ user, records = {}, errors = {}, holdReads = false
             query.filters.some(([column, value]) => column === "user_id" && value !== data.user_id)
           ) {
             data = null;
+          }
+          if (table === "orders" && data) {
+            data = {
+              ...data,
+              services: records.services
+                ? [{ ...records.services, platforms: records.platforms ? [records.platforms] : [] }]
+                : null,
+            };
           }
           return { data, error: errors[table] ?? null };
         },
@@ -130,12 +138,22 @@ const records = {
     [["public_order_id", "VNT-123"], ["user_id", "user-1"]],
     "order lookup remains scoped to its authenticated owner",
   );
+  assert.match(
+    test.queries.find((query) => query.table === "orders").columns,
+    /services\(name,slug,category,platforms\(name,slug\)\)/,
+    "service and platform display fields are joined into the owned order query",
+  );
+  assert.deepEqual(
+    test.queries.map((query) => query.table).sort(),
+    ["orders", "wallets"],
+    "checkout uses one joined order read and one wallet read",
+  );
 }
 
 {
   const test = loadCheckoutModule({ user, records: { ...records, orders: null } });
   assert.equal(await test.getCheckoutOrder("VNT-123"), null, "missing order is not exposed");
-  assert.deepEqual(test.started, ["orders"], "dependent lookups do not run without an owned order");
+  assert.deepEqual(test.started.slice().sort(), ["orders", "wallets"]);
 }
 
 {
@@ -144,7 +162,7 @@ const records = {
     records: { ...records, orders: { ...records.orders, user_id: "another-user" } },
   });
   assert.equal(await test.getCheckoutOrder("VNT-123"), null, "foreign-owned order is not exposed");
-  assert.deepEqual(test.started, ["orders"], "dependent lookups do not run for a foreign-owned order");
+  assert.deepEqual(test.started.slice().sort(), ["orders", "wallets"]);
 }
 
 {
@@ -156,7 +174,6 @@ const records = {
 {
   const test = loadCheckoutModule({ user, records: { ...records, services: null } });
   assert.equal(await test.getCheckoutOrder("VNT-123"), null, "missing service returns no checkout order");
-  assert.deepEqual(test.started, ["orders", "services"]);
 }
 
 {
@@ -171,6 +188,7 @@ const records = {
 }
 
 for (const table of ["orders", "services", "platforms", "wallets"]) {
+  if (table === "services" || table === "platforms") continue;
   const failure = new Error(`${table} query failed`);
   const test = loadCheckoutModule({ user, records, errors: { [table]: failure } });
   await assert.rejects(test.getCheckoutOrder("VNT-123"), (error) => error === failure);
@@ -179,16 +197,16 @@ for (const table of ["orders", "services", "platforms", "wallets"]) {
 {
   const test = loadCheckoutModule({ user, records, holdReads: true });
   const loading = test.getCheckoutOrder("VNT-123");
-  for (let attempt = 0; attempt < 20 && !["platforms", "wallets"].every((table) => test.started.includes(table)); attempt += 1) {
+  for (let attempt = 0; attempt < 20 && !["orders", "wallets"].every((table) => test.started.includes(table)); attempt += 1) {
     await new Promise((resolve) => setImmediate(resolve));
   }
   assert.deepEqual(
     test.started.slice(-2).sort(),
-    ["platforms", "wallets"],
-    "platform and wallet reads both start before either held read can complete",
+    ["orders", "wallets"],
+    "order and wallet reads start before either held read can complete",
   );
   assert.equal(
-    test.completed.some((table) => table === "platforms" || table === "wallets"),
+    test.completed.some((table) => table === "orders" || table === "wallets"),
     false,
     "the independent reads overlap",
   );

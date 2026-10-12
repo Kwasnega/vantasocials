@@ -21,6 +21,9 @@ vm.runInNewContext(compiledPredicate, { module: predicateModule, exports: predic
 const { shouldSkipSupabaseSessionRefresh } = predicateModule.exports;
 
 for (const path of [
+  "/login",
+  "/signup",
+  "/api/auth/redirect",
   "/api/homepage/catalog",
   "/api/platforms",
   "/api/services",
@@ -30,6 +33,9 @@ for (const path of [
 }
 
 for (const [method, path] of [
+  ["POST", "/login"],
+  ["POST", "/signup"],
+  ["POST", "/api/auth/redirect"],
   ["POST", "/api/homepage/catalog"],
   ["PUT", "/api/platforms"],
   ["DELETE", "/api/services"],
@@ -45,6 +51,9 @@ for (const path of [
   "/api/platforms/instagram",
   "/api/orders",
   "/api/admin/services",
+  "/login/extra",
+  "/signup/extra",
+  "/api/auth/redirect/extra",
 ]) {
   assert.equal(shouldSkipSupabaseSessionRefresh("GET", path), false, `${path} is not bypassed`);
 }

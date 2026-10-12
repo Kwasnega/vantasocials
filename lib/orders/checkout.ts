@@ -30,39 +30,26 @@ export async function getCheckoutOrder(publicOrderId: string): Promise<CheckoutO
   if (!user || !publicOrderId.trim()) return null;
 
   const admin = createSupabaseAdminClient();
+  const walletPromise = admin
+    .from("wallets")
+    .select("balance_minor")
+    .eq("user_id", user.id)
+    .maybeSingle();
   const { data: order, error } = await admin
     .from("orders")
-    .select("public_order_id,service_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,status,payment_status,fulfillment_status,created_at,user_id,input_values")
+    .select("public_order_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,status,payment_status,fulfillment_status,created_at,user_id,input_values,services(name,slug,category,platforms(name,slug))")
     .eq("public_order_id", publicOrderId.trim())
     .eq("user_id", user.id)
     .maybeSingle();
   if (error) throw error;
   if (!order) return null;
 
-  const { data: service, error: serviceError } = await admin
-    .from("services")
-    .select("name,slug,category,platform_id")
-    .eq("id", order.service_id)
-    .maybeSingle();
-  if (serviceError) throw serviceError;
+  const service = Array.isArray(order.services) ? order.services[0] : order.services;
   if (!service) return null;
-
-  const [platformResult, walletResult] = await Promise.all([
-    admin
-      .from("platforms")
-      .select("name,slug")
-      .eq("id", service.platform_id)
-      .maybeSingle(),
-    admin
-      .from("wallets")
-      .select("balance_minor")
-      .eq("user_id", user.id)
-      .maybeSingle(),
-  ]);
-  const { data: platform, error: platformError } = platformResult;
-  if (platformError) throw platformError;
+  const platform = Array.isArray(service.platforms) ? service.platforms[0] : service.platforms;
   if (!platform) return null;
-  const { data: wallet, error: walletError } = walletResult;
+
+  const { data: wallet, error: walletError } = await walletPromise;
   if (walletError) throw walletError;
 
   return {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../../lib/supabase/server";
 import { initializePaystack, verifyPaystack } from "../../../../lib/payments/paystack";
 import { verifyAndSettlePaystack } from "../../../../lib/payments/settle";
+import { assertPayableOrderTotal } from "../../../../lib/pricing/customer-price";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
 
 export async function POST(request: Request) {
@@ -19,6 +20,11 @@ export async function POST(request: Request) {
     const { data: order, error } = await admin.from("orders").select("id,public_order_id,total,currency,status,payment_status,user_id").eq("public_order_id", orderId).eq("user_id", user.id).maybeSingle();
     if (error) throw error;
     if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
+    try {
+      assertPayableOrderTotal(order.total);
+    } catch (validationError) {
+      return NextResponse.json({ error: validationError instanceof Error ? validationError.message : "Order total is not payable." }, { status: 409 });
+    }
     if (order.status !== "PENDING_PAYMENT" || order.payment_status !== "UNPAID") return NextResponse.json({ error: "Order is not available for payment." }, { status: 409 });
 
     const { data: existing, error: existingError } = await admin.from("payments").select("id,reference,provider_response").eq("order_id", order.id).eq("user_id", user.id).eq("provider", "paystack").eq("status", "PENDING").maybeSingle();

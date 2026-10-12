@@ -6,6 +6,8 @@ import { resolveOrderExecutionMode } from "./order-execution-mode";
 import { claimPanelFollowsAttempt, submitPanelFollowsAttempt } from "./panelfollows/attempt";
 import { resolveProviderForService } from "./resolver";
 import { fulfillReliableSMMDynamicOrder, fulfillReliableSMMOrder } from "./reliablesmm/attempt";
+import { assertProviderMappingConsistency } from "./provider-mapping-consistency";
+import { assertPayableOrderTotal } from "../pricing/customer-price";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -21,10 +23,11 @@ async function loadOrderExecutionRecord(orderId: string) {
   const admin = createSupabaseAdminClient();
   const { data: order, error } = await admin
     .from("orders")
-    .select("id,input_schema_version,input_schema_snapshot,input_values")
+    .select("id,total,input_schema_version,input_schema_snapshot,input_values")
     .eq("id", orderId)
     .maybeSingle();
   if (error) throw error;
+  if (order) assertPayableOrderTotal(order.total);
   return order ?? null;
 }
 
@@ -32,7 +35,7 @@ export async function loadDynamicOrderExecutionContext(orderId: string) {
   const admin = createSupabaseAdminClient();
   const { data: order, error } = await admin
     .from("orders")
-    .select("id,service_id,payment_status,fulfillment_status,input_schema_version,input_schema_snapshot,input_values")
+    .select("id,service_id,payment_status,fulfillment_status,input_schema_version,input_schema_snapshot,input_values,services(provider,provider_service_id)")
     .eq("id", orderId)
     .maybeSingle();
   if (error) throw error;
@@ -52,8 +55,11 @@ export async function loadDynamicOrderExecutionContext(orderId: string) {
   if (mappingError) throw mappingError;
   if (!Array.isArray(mappings) || mappings.length === 0) throw new Error("Dynamic order is missing active provider mappings.");
 
-  const provider = (mappings[0] as { provider?: string } | null)?.provider ?? "reliablesmm";
-  const providerServiceId = (mappings[0] as { provider_service_id?: string } | null)?.provider_service_id ?? "";
+  const serviceMapping = Array.isArray(order.services) ? order.services[0] : order.services;
+  const { provider, providerServiceId } = assertProviderMappingConsistency(
+    serviceMapping as { provider?: string | null; provider_service_id?: string | null } | null,
+    mappings as Array<{ provider?: string | null; provider_service_id?: string | null }>,
+  );
   const transformed = buildProviderPayload({
     orderId: order.id,
     serviceId: order.service_id,

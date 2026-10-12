@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CheckoutPaymentOptions } from "../../components/checkout/CheckoutPaymentOptions";
 import { getPlatformLogoUrl } from "../../lib/catalog/logo";
 import { getCheckoutOrder } from "../../lib/orders/checkout";
+import { formatOrderInputValue } from "../../lib/orders/display-input-values";
 
 export const dynamic = "force-dynamic";
 
@@ -162,7 +163,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
                         {Object.entries(checkoutOrder.input_values).map(([key, val]) => (
                           <div key={key} className="checkout-dyn-row">
                             <span className="checkout-dyn-key">{key}:</span>
-                            <span className="checkout-dyn-val">{String(val)}</span>
+                            <span className="checkout-dyn-val">{formatOrderInputValue(val)}</span>
                           </div>
                         ))}
                       </div>
@@ -173,7 +174,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
                 {/* Price Breakdown / Receipt Table */}
                 <div className="checkout-receipt">
                   <div className="checkout-receipt-row">
-                    <span>Base Unit Rate</span>
+                    <span>Base Rate (per unit)</span>
                     <span>{checkoutOrder.unit_price} {checkoutOrder.currency}</span>
                   </div>
                   <div className="checkout-receipt-row">
@@ -250,6 +251,11 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
                 <p>
                   Need assistance with this order? Our support team is here to help at{" "}
                   <a href="mailto:vantasocials62@gmail.com">vantasocials62@gmail.com</a>.
+                </p>
+                <p className="checkout-legal-links">
+                  By continuing, you agree to our <Link href="/terms">Terms</Link>,{" "}
+                  <Link href="/refund-policy">Refund Policy</Link>, and{" "}
+                  <Link href="/privacy-policy">Privacy Policy</Link>.
                 </p>
               </div>
             </div>

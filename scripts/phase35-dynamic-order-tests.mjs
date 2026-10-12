@@ -1,6 +1,45 @@
 import assert from "node:assert/strict";
-import { sanitizeCustomerInputField } from "../lib/customer/service-contract.ts";
-import { buildDynamicSchemaSnapshot, validateDynamicFieldValues } from "../lib/orders/dynamic-input-validation.ts";
+import { createRequire } from "node:module";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
+import ts from "typescript";
+
+const requireFromScript = createRequire(import.meta.url);
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const moduleCache = new Map();
+
+function loadTypeScriptModule(filename) {
+  const modulePath = filename.endsWith(".ts") ? filename : `${filename}.ts`;
+  const absolutePath = path.isAbsolute(modulePath) ? modulePath : path.resolve(repositoryRoot, modulePath);
+  if (moduleCache.has(absolutePath)) return moduleCache.get(absolutePath).exports;
+
+  const module = { exports: {} };
+  moduleCache.set(absolutePath, module);
+  const compiled = ts.transpileModule(fs.readFileSync(absolutePath, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  const localRequire = (specifier) => {
+    if (!specifier.startsWith(".")) return requireFromScript(specifier);
+    return loadTypeScriptModule(path.resolve(path.dirname(absolutePath), specifier));
+  };
+  vm.runInNewContext(compiled, {
+    module,
+    exports: module.exports,
+    require: localRequire,
+    URL,
+  });
+  return module.exports;
+}
+
+const { sanitizeCustomerInputField } = loadTypeScriptModule("lib/customer/service-contract");
+const {
+  buildDynamicSchemaSnapshot,
+  validateDynamicFieldValues,
+  validateDynamicOrderInput,
+} = loadTypeScriptModule("lib/orders/dynamic-input-validation");
+const plain = (value) => JSON.parse(JSON.stringify(value));
 
 const usernameField = {
   key: "username",
@@ -43,8 +82,18 @@ const urlField = {
 
 const build = buildDynamicSchemaSnapshot([usernameField, commentsField]);
 assert.equal(build.schemaVersion, 3);
-assert.deepEqual(build.schemaSnapshot.map((field) => field.key), ["username", "comments"]);
-assert.deepEqual(validateDynamicFieldValues(build.schemaSnapshot, { username: "alice", comments: "line one\nline two" }).validatedValues, {
+assert.deepEqual(plain(build.schemaSnapshot.map((field) => field.key)), ["username", "comments"]);
+assert.deepEqual(plain(validateDynamicFieldValues(build.schemaSnapshot, { username: "alice", comments: "line one\nline two" }).validatedValues), {
+  username: "alice",
+  comments: { lines: ["line one", "line two"] },
+});
+const rowsBasedValidation = validateDynamicOrderInput([usernameField, commentsField], {
+  username: " alice ",
+  comments: "line one\nline two",
+});
+assert.equal(rowsBasedValidation.schemaVersion, 3);
+assert.deepEqual(plain(rowsBasedValidation.schemaSnapshot), plain(build.schemaSnapshot));
+assert.deepEqual(plain(rowsBasedValidation.validatedValues), {
   username: "alice",
   comments: { lines: ["line one", "line two"] },
 });
@@ -59,6 +108,14 @@ assert.throws(() => buildDynamicSchemaSnapshot([{ ...usernameField, provider_par
 
 const serviceB = buildDynamicSchemaSnapshot([urlField]);
 assert.throws(() => validateDynamicFieldValues(serviceB.schemaSnapshot, { username: "alice" }), /Unknown dynamic field key/);
+assert.deepEqual(
+  plain(validateDynamicOrderInput([urlField], { post_url: " https://example.com/post " }).validatedValues),
+  { post_url: "https://example.com/post" },
+);
+assert.throws(
+  () => validateDynamicOrderInput([urlField], { post_url: "javascript:alert(1)" }),
+  /valid URL/i,
+);
 
 const longComments = {
   key: "comments",

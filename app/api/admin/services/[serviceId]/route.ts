@@ -16,41 +16,67 @@ export async function DELETE(
   }
 
   const db = createSupabaseAdminClient();
+  const [service, orders, inputFields, inputMappings, pricingAudit, mappingAudit] = await Promise.all([
+    db.from("services").select("id,provider,provider_service_id").eq("id", serviceId).maybeSingle(),
+    db.from("orders").select("id", { count: "exact", head: true }).eq("service_id", serviceId),
+    db.from("service_input_fields").select("id", { count: "exact", head: true }).eq("service_id", serviceId),
+    db.from("service_provider_input_mappings").select("id", { count: "exact", head: true }).eq("service_id", serviceId),
+    db.from("pricing_audit_log").select("id", { count: "exact", head: true }).eq("service_id", serviceId),
+    db.from("provider_mapping_audit").select("id", { count: "exact", head: true }).eq("service_id", serviceId),
+  ]);
 
-  // Check if service has any existing orders
-  const { count: ordersCount } = await db
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("service_id", serviceId);
+  if (service.error || orders.error || inputFields.error || inputMappings.error || pricingAudit.error || mappingAudit.error) {
+    return NextResponse.json({ error: "Unable to verify service dependencies. Nothing was deleted." }, { status: 500 });
+  }
+  if (!service.data) return NextResponse.json({ error: "Service not found." }, { status: 404 });
+  if ([orders.count, inputFields.count, inputMappings.count, pricingAudit.count, mappingAudit.count].some((count) => count === null)) {
+    return NextResponse.json({ error: "Service dependency counts are incomplete. Nothing was deleted." }, { status: 500 });
+  }
 
-  if (ordersCount && ordersCount > 0) {
-    // If it has orders, deactivate it instead of hard deleting to preserve historical order integrity
-    const { error: updateError } = await db
+  const hasProtectedDependencies = [
+    orders.count,
+    inputFields.count,
+    inputMappings.count,
+    pricingAudit.count,
+    mappingAudit.count,
+  ].some((count) => (count ?? 0) > 0) ||
+    Boolean(service.data.provider || service.data.provider_service_id);
+
+  if (hasProtectedDependencies) {
+    const { data: service, error: updateError } = await db
       .from("services")
       .update({ active: false })
-      .eq("id", serviceId);
+      .eq("id", serviceId)
+      .select("id")
+      .maybeSingle();
 
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return NextResponse.json({ error: "Service has protected history or configuration and could not be deactivated." }, { status: 500 });
     }
+    if (!service) return NextResponse.json({ error: "Service not found." }, { status: 404 });
 
     return NextResponse.json({
       deleted: false,
       deactivated: true,
-      message: "Service has order history so it was deactivated/hidden rather than permanently deleted.",
+      message: "Service has protected history or configuration, so it was deactivated rather than permanently deleted.",
     });
   }
 
-  // Hard delete if no orders exist
-  // Clean up related input mappings and fields first
-  await db.from("service_input_mappings").delete().eq("service_id", serviceId);
-  await db.from("service_input_fields").delete().eq("service_id", serviceId);
-  await db.from("pricing_audit_log").delete().eq("service_id", serviceId);
+  const { data: deleted, error: deleteError } = await db
+    .from("services")
+    .delete()
+    .eq("id", serviceId)
+    .select("id")
+    .maybeSingle();
 
-  const { error: deleteError } = await db.from("services").delete().eq("id", serviceId);
   if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    return NextResponse.json({
+      error: deleteError.code === "23503"
+        ? "Service acquired a protected dependency and was not deleted."
+        : "Unable to delete service. No related history or configuration was removed.",
+    }, { status: deleteError.code === "23503" ? 409 : 500 });
   }
+  if (!deleted) return NextResponse.json({ error: "Service not found." }, { status: 404 });
 
   return NextResponse.json({ deleted: true });
 }

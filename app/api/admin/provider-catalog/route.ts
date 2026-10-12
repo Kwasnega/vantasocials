@@ -7,6 +7,7 @@ import { assessProviderEligibility } from "../../../../lib/targets/eligibility";
 import { getTargetContractForService } from "../../../../lib/targets/contracts";
 import { fetchAllProviderCatalogRows } from "../../../../lib/admin/provider-catalog-query";
 import {
+  matchesApprovedProviderOperation,
   resolveProviderCompatibility,
   sameProviderPlatform,
   resolveProviderPlatformCompatibility,
@@ -56,10 +57,11 @@ export async function GET(request: Request) {
       (!status || row.provider_status === status)
     );
 
-    const { data: mapped } = await db
+    const { data: mapped, error: mappedError } = await db
       .from("services")
       .select("provider_service_id,slug,name")
       .eq("provider", "reliablesmm");
+    if (mappedError) return NextResponse.json({ error: "Unable to verify current provider mappings." }, { status: 500 });
 
     const mappedById = new Map((mapped ?? []).map((row) => [String(row.provider_service_id), row]));
 
@@ -108,38 +110,33 @@ export async function GET(request: Request) {
     platformSlug: platform?.slug,
   });
 
-  // Filter candidates: match either provider category rules or platform matching + terms
+  // Candidate search is advisory; eligibility is determined by explicit metadata and reviewed IDs.
   const candidates = (catalog ?? []).filter((row) => {
     const categoryStr = String((row.raw_metadata as { category?: unknown } | null)?.category ?? "");
     const matchesRule = providerCatalogMatches(vantaSlug, row.name, categoryStr);
     if (matchesRule) return true;
 
-    // Fallback: if from the same platform
-    if (platform?.slug) {
-      const compatibility = resolveProviderCompatibility(row.raw_metadata, row.name);
-      if (compatibility.compatibility && sameProviderPlatform(compatibility.compatibility.platform, platform)) {
-        // Also check if any key word in service name appears in row name
-        const serviceWords = service.slug.split("-").filter((w: string) => w !== platform.slug && w.length > 2);
-        const rowText = `${row.name} ${categoryStr}`.toLowerCase();
-        return serviceWords.some((w: string) => rowText.includes(w));
-      }
-    }
     return false;
   });
 
   const services = candidates.map((row) => {
     const compatibility = resolveProviderCompatibility(row.raw_metadata, row.name);
     const platformCompatibility = resolveProviderPlatformCompatibility(row.raw_metadata, platform, row.name);
-    const dynamicCompatibilityVerified = Boolean(
-      compatibility.compatibility &&
-      platform &&
-      sameProviderPlatform(compatibility.compatibility.platform, platform)
-    );
+    const category = typeof (row.raw_metadata as { category?: unknown } | null)?.category === "string"
+      ? (row.raw_metadata as { category: string }).category
+      : "";
 
     const eligibility = assessProviderEligibility({
       serviceSlug: service.slug,
       targetContract,
-      dynamicCompatibilityVerified,
+      operationCompatibilityVerified: matchesApprovedProviderOperation(
+        service.slug,
+        String(row.provider_service_id),
+        row.name,
+        category,
+      ),
+      expectedTargetType: service.target_type,
+      providerTargetType: compatibility.compatibility?.targetType,
       platformCompatibilityState: platformCompatibility.state,
       vantaMin: service.min_quantity,
       vantaMax: service.max_quantity,

@@ -46,14 +46,14 @@ test("quantity is preserved", () => {
   const request = mockSubmission({ provider: "reliablesmm", providerServiceId: "7972", quantity: 10000, target: "https://instagram.com/example/p/ABC" });
   assert.equal(request.quantity, 10000);
   assert.match(adapter, /quantity: input\.quantity/);
-  assert.match(attempt, /quantity: Number\(attempt\.quantity\)/);
+  assert.match(attempt, /quantity: Number\(attempt\.quantity \?\? 0\)/);
 });
 
 test("normalized target reaches the adapter unchanged", () => {
   const target = "https://instagram.com/example/p/ABC";
   const request = mockSubmission({ provider: "reliablesmm", providerServiceId: "7972", target });
   assert.equal(request.link, target);
-  assert.match(attempt, /target\.link/);
+  assert.match(attempt, /callerTarget\.link !== persistedTarget\.link/);
   assert.match(adapter, /link: input\.targetValue/);
 });
 

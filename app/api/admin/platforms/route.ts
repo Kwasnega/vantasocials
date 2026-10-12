@@ -13,7 +13,7 @@ export async function GET() {
     .select("id,slug,name,logo,color,description,active")
     .order("name");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: "Unable to load platforms." }, { status: 500 });
   return NextResponse.json({ platforms });
 }
 
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     if (error.code === "23505") {
       return NextResponse.json({ error: "A platform with this name or slug already exists." }, { status: 409 });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to create platform." }, { status: 500 });
   }
 
   return NextResponse.json({ platform }, { status: 201 });

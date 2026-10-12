@@ -1,16 +1,19 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { CatalogService } from "../../lib/catalog/services";
 import type { CustomerInputField } from "../../lib/customer/service-contract";
 import { getFieldControlType, validateCustomerInputValue } from "../../lib/customer/service-contract";
 import { getTargetContract } from "../../lib/targets/contracts";
+import { calculateCustomerTotal } from "../../lib/pricing/customer-price";
 
 type StoredOrderIntent = { key: string; fingerprint: string };
 const orderIntentStorageKey = (serviceId: string) => `vanta:order-creation-intent:${serviceId}`;
 const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export function ServiceConfigurator({ service, platform }: { service: CatalogService & { inputFields?: CustomerInputField[] }; platform?: string }) {
+  const router = useRouter();
   const dynamicFields = Array.isArray(service.inputFields) ? [...service.inputFields].sort((left, right) => left.displayOrder - right.displayOrder) : [];
   const isDynamic = dynamicFields.length > 0;
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => Object.fromEntries(dynamicFields.map((field) => [field.key, ""])));
@@ -19,7 +22,7 @@ export function ServiceConfigurator({ service, platform }: { service: CatalogSer
   const [quantityInput, setQuantityInput] = useState(String(service.min_quantity));
   const quantity = Number(quantityInput);
   const quantityValid = Number.isInteger(quantity) && quantity >= service.min_quantity && quantity <= service.max_quantity;
-  const total = useMemo(() => quantityValid ? (quantity * Number(service.selling_rate)).toFixed(2) : "—", [quantity, quantityValid, service.selling_rate]);
+  const total = useMemo(() => quantityValid ? calculateCustomerTotal(service.selling_rate, quantity) : "—", [quantity, quantityValid, service.selling_rate]);
   const contract = getTargetContract(service.slug);
   const label = contract?.includes("PROFILE")
     ? "Profile URL"
@@ -116,14 +119,21 @@ export function ServiceConfigurator({ service, platform }: { service: CatalogSer
         return;
       }
       if (!response.ok) {
-        setError(result.error || "Unable to create order.");
+        setError(response.status >= 500
+          ? "We couldn’t confirm the order. Retry safely to check this same submission."
+          : result.error || "Unable to create order.");
+        setSubmitting(false);
+        return;
+      }
+      if (typeof result.public_order_id !== "string" || !result.public_order_id.trim()) {
+        setError("We couldn’t confirm the order. Retry safely to check this same submission.");
         setSubmitting(false);
         return;
       }
       beginDifferentOrderIntent();
-      window.location.href = `/checkout?order=${encodeURIComponent(result.public_order_id)}`;
+      router.push(`/checkout?order=${encodeURIComponent(result.public_order_id)}`);
     } catch {
-      setError("Unable to create order.");
+      setError("We couldn’t confirm the order. Retry safely to check this same submission.");
       setSubmitting(false);
     }
   }
@@ -160,14 +170,21 @@ export function ServiceConfigurator({ service, platform }: { service: CatalogSer
         return;
       }
       if (!response.ok) {
-        setError(result.error || "Unable to create order.");
+        setError(response.status >= 500
+          ? "We couldn’t confirm the order. Retry safely to check this same submission."
+          : result.error || "Unable to create order.");
+        setSubmitting(false);
+        return;
+      }
+      if (typeof result.public_order_id !== "string" || !result.public_order_id.trim()) {
+        setError("We couldn’t confirm the order. Retry safely to check this same submission.");
         setSubmitting(false);
         return;
       }
       beginDifferentOrderIntent();
-      window.location.href = `/checkout?order=${encodeURIComponent(result.public_order_id)}`;
+      router.push(`/checkout?order=${encodeURIComponent(result.public_order_id)}`);
     } catch {
-      setError("Unable to create order.");
+      setError("We couldn’t confirm the order. Retry safely to check this same submission.");
       setSubmitting(false);
     }
   }
@@ -227,7 +244,7 @@ export function ServiceConfigurator({ service, platform }: { service: CatalogSer
         <span className="platform-logo">{platform?.slice(0, 1) ?? "V"}</span>
         <div><strong>{service.name}</strong><small>{platform ?? "VANTA"} · {service.category}</small></div>
       </div>
-      <div className="summary-row"><span>Unit Rate</span><strong>{service.currency} {service.selling_rate} / unit (₵{(Number(service.selling_rate) * 1000).toFixed(2)} / 1k)</strong></div>
+      <div className="summary-row"><span>Customer rate</span><strong>{service.currency} {calculateCustomerTotal(service.selling_rate, 1000)} / 1,000 units</strong></div>
       <div className="summary-row"><span>Quantity</span><strong>{quantityValid ? quantity.toLocaleString() : "—"}</strong></div>
       <div className="summary-row"><span>Price</span><strong>{service.currency} {total}</strong></div>
       <p className="summary-note">Secure checkout follows after you review your order.</p>

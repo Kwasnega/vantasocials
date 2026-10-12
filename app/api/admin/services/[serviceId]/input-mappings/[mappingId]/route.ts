@@ -16,7 +16,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ se
   if (lookupError) return NextResponse.json({ error: "Mapping lookup failed." }, { status: 500 });
   if (!current) return NextResponse.json({ error: "Mapping not found for this service." }, { status: 404 });
   const requestedActive = body.active === undefined ? current.active : Boolean(body.active);
-  const { data: service } = await db.from("services").select("id,slug,target_type,min_quantity,max_quantity,platforms(slug,name)").eq("id", serviceId).maybeSingle();
+  const { data: service, error: serviceError } = await db.from("services").select("id,slug,target_type,min_quantity,max_quantity,platforms(slug,name)").eq("id", serviceId).maybeSingle();
+  if (serviceError) return NextResponse.json({ error: "Service lookup failed." }, { status: 500 });
   if (!service) return NextResponse.json({ error: "VANTA service not found." }, { status: 404 });
   const normalizedService = {
     ...service,
@@ -26,7 +27,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ se
     if (isReservedProviderTransportKey(current.provider_parameter_key ?? "")) {
       return NextResponse.json({ error: `Provider parameter key '${current.provider_parameter_key}' is reserved for system-controlled transport fields.` }, { status: 400 });
     }
-    const { data: catalogRow } = await db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_service_id", current.provider_service_id).eq("provider_status", "ACTIVE").maybeSingle();
+    const { data: catalogRow, error: catalogError } = await db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_service_id", current.provider_service_id).eq("provider_status", "ACTIVE").maybeSingle();
+    if (catalogError) return NextResponse.json({ error: "Provider catalog lookup failed." }, { status: 500 });
     if (!catalogRow) return NextResponse.json({ error: "The selected ReliableSMM service is unavailable or inactive." }, { status: 409 });
     try {
       ensureProviderMappingEligibility(normalizedService, catalogRow);

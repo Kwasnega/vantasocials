@@ -80,19 +80,8 @@ export function validateDynamicFieldValues(fields: CustomerInputField[], submitt
   };
 }
 
-export async function validateDynamicOrderInput(serviceId: string, submitted: unknown): Promise<DynamicOrderValidationResult> {
-  const { createSupabaseAdminClient } = await import("../supabase/server");
-  const admin = createSupabaseAdminClient();
-  const { data: rows, error } = await admin
-    .from("service_input_fields")
-    .select("id,key,label,input_type,required,display_order,placeholder,help_text,validation_config,active,schema_version")
-    .eq("service_id", serviceId)
-    .eq("active", true)
-    .order("display_order", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (error) throw error;
-  const { schemaVersion, schemaSnapshot } = buildDynamicSchemaSnapshot(rows ?? []);
+export function validateDynamicOrderInput(rows: unknown[], submitted: unknown): DynamicOrderValidationResult {
+  const { schemaVersion, schemaSnapshot } = buildDynamicSchemaSnapshot(rows);
   if (schemaSnapshot.length === 0) {
     throw new Error("This service does not have active dynamic fields.");
   }

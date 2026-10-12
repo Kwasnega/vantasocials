@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/server";
 import { calculatePricing, type RateUnit } from "../../../../lib/pricing/engine";
+import { adminPricePer1000ToUnitRate } from "../../../../lib/pricing/customer-price";
 import { enforceAdminRateLimit, limiterUnavailable } from "../../../../lib/security/rate-limit";
 import { assessProviderEligibility } from "../../../../lib/targets/eligibility";
 import { getTargetContractForService } from "../../../../lib/targets/contracts";
 import {
+  matchesApprovedProviderOperation,
   resolveProviderCompatibility,
-  sameProviderPlatform,
   resolveProviderPlatformCompatibility,
 } from "../../../../lib/admin/provider-compatibility";
 
@@ -26,14 +27,24 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const serviceId = String(body?.service_id || "");
   const providerServiceId = String(body?.provider_service_id || "");
-  const sellingPrice = String(body?.selling_price || "").trim();
+  const sellingPricePer1000 = typeof body?.sellingPricePer1000 === "string" ? body.sellingPricePer1000.trim() : "";
 
-  if (!serviceId || !/^[0-9]+$/.test(providerServiceId) || !/^[0-9]+(\.\d+)?$/.test(sellingPrice) || Number(sellingPrice) <= 0) {
+  if (!serviceId || !/^[0-9]+$/.test(providerServiceId)) {
     return NextResponse.json({ error: "A valid provider service and positive customer price are required." }, { status: 400 });
+  }
+  let sellingRatePerUnit: string;
+  try {
+    sellingRatePerUnit = adminPricePer1000ToUnitRate(sellingPricePer1000, false);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid customer price per 1,000 units." }, { status: 400 });
   }
 
   const db = createSupabaseAdminClient();
-  const [{ data: service }, { data: catalog }, { data: setting }] = await Promise.all([
+  const [
+    { data: service, error: serviceError },
+    { data: catalog, error: catalogError },
+    { data: setting, error: settingError },
+  ] = await Promise.all([
     db
       .from("services")
       .select("id,slug,name,selling_rate,currency,provider,provider_service_id,min_quantity,max_quantity,target_type,platforms(slug,name)")
@@ -49,9 +60,15 @@ export async function POST(request: Request) {
     db.from("pricing_settings").select("fx_rate").eq("key", "USD_GHS").maybeSingle(),
   ]);
 
+  if (serviceError || catalogError || settingError) {
+    return NextResponse.json({ error: "Unable to load mapping and pricing data." }, { status: 500 });
+  }
   if (!service) return NextResponse.json({ error: "VANTA service not found." }, { status: 404 });
   if (service.currency !== "GHS") return NextResponse.json({ error: `VANTA service currency must be GHS; found ${service.currency || "unset"}.` }, { status: 409 });
   if (!catalog) return NextResponse.json({ error: "Provider service is not active in the catalog." }, { status: 409 });
+  if (String(catalog.provider_service_id) !== providerServiceId || catalog.provider !== "reliablesmm") {
+    return NextResponse.json({ error: "Provider service identity does not match the requested mapping." }, { status: 409 });
+  }
 
   const targetContract = getTargetContractForService({
     slug: service.slug,
@@ -61,16 +78,21 @@ export async function POST(request: Request) {
   const compatibility = resolveProviderCompatibility(catalog.raw_metadata, catalog.name);
   const platform = service.platforms as { slug?: string; name?: string } | null;
   const platformCompatibility = resolveProviderPlatformCompatibility(catalog.raw_metadata, platform, catalog.name);
-  const dynamicCompatibilityVerified = Boolean(
-    compatibility.compatibility &&
-    platform &&
-    sameProviderPlatform(compatibility.compatibility.platform, platform)
-  );
+  const category = typeof (catalog.raw_metadata as { category?: unknown } | null)?.category === "string"
+    ? (catalog.raw_metadata as { category: string }).category
+    : "";
 
   const eligibility = assessProviderEligibility({
     serviceSlug: service.slug,
     targetContract,
-    dynamicCompatibilityVerified,
+    operationCompatibilityVerified: matchesApprovedProviderOperation(
+      service.slug,
+      String(catalog.provider_service_id),
+      catalog.name,
+      category,
+    ),
+    expectedTargetType: service.target_type,
+    providerTargetType: compatibility.compatibility?.targetType,
     platformCompatibilityState: platformCompatibility.state,
     vantaMin: service.min_quantity,
     vantaMax: service.max_quantity,
@@ -82,12 +104,12 @@ export async function POST(request: Request) {
     },
   });
 
-  if (eligibility.status === "BLOCKED") {
+  if (eligibility.status !== "ELIGIBLE") {
     return NextResponse.json({ error: `This provider service cannot be mapped: ${eligibility.reason}` }, { status: 409 });
   }
 
   const unit = catalog.rate_unit as RateUnit;
-  if (catalog.provider_currency !== "USD" || !["PER_UNIT", "PER_1000", "PER_ORDER"].includes(unit)) {
+  if (catalog.provider_currency !== "USD" || !["PER_1000", "PER_ORDER"].includes(unit)) {
     return NextResponse.json({ error: "Provider pricing unit or currency is unsupported." }, { status: 409 });
   }
 
@@ -97,7 +119,7 @@ export async function POST(request: Request) {
         providerRateUnit: unit,
         providerCurrency: "USD",
         fxRate: String(setting.fx_rate),
-        sellingPricePerUnit: sellingPrice,
+        sellingPricePerUnit: sellingRatePerUnit,
         sellingCurrency: "GHS",
         quantity: 10000,
       })
@@ -116,7 +138,7 @@ export async function POST(request: Request) {
 
   const updated = await db
     .from("services")
-    .update({ selling_rate: sellingPrice })
+    .update({ selling_rate: sellingRatePerUnit })
     .eq("id", serviceId)
     .select("id,slug,selling_rate,currency,provider,provider_service_id")
     .single();
@@ -129,7 +151,7 @@ export async function POST(request: Request) {
     service_id: serviceId,
     field: "selling_price",
     old_value: service.selling_rate,
-    new_value: sellingPrice,
+    new_value: sellingRatePerUnit,
     changed_by: user.id,
   });
 
@@ -141,6 +163,7 @@ export async function POST(request: Request) {
     saved: true,
     mapping: mapped.data,
     service: updated.data,
+    sellingPricePer1000,
     economics,
     pricingPreviewUnavailable: economics === null,
     pricingPreviewMessage: economics === null ? "USD → GHS FX is not configured." : null,

@@ -56,6 +56,22 @@ assert.equal(vanta(100).providerCostUsd, "0.02664");
 assert.equal(vanta(1000).providerCostUsd, "0.2664");
 assert.equal(vanta(10000).providerCostUsd, "2.664");
 
+const perThousand = calculatePricing({
+  providerRate: "0.5",
+  providerRateUnit: "PER_1000",
+  providerCurrency: "USD",
+  fxRate: "12",
+  sellingPricePerUnit: "0.005",
+  sellingCurrency: "GHS",
+  quantity: 2000,
+});
+assert.equal(perThousand.revenueGhs, "10");
+assert.equal(perThousand.providerCostUsd, "1");
+assert.equal(perThousand.providerCostGhs, "12");
+assert.equal(perThousand.grossProfitGhs, "-2");
+assert.equal(perThousand.grossMarginPercent, "-20");
+assert.equal(perThousand.markupPercent, "-16.66");
+
 // 2. PER_UNIT and PER_ORDER model costs
 assert.equal(
   calculatePricing({
@@ -179,16 +195,18 @@ const perOrder = calculatePricing({
   providerRateUnit: "PER_ORDER",
   providerCurrency: "USD",
   fxRate: "12",
-  sellingPricePerUnit: "15",
+  sellingPricePerUnit: "0.005",
   sellingCurrency: "GHS",
-  quantity: 1,
+  quantity: 2000,
 });
 assert.equal(perOrder.providerCostGhsPerBasis, "9.6");
-assert.equal(perOrder.revenueGhs, "15");
-assert.equal(perOrder.grossProfitGhs, "5.4");
-assert.equal(perOrder.grossMarginPercent, "36");
-assert.equal(perOrder.markupPercent, "56.25");
-assert.equal(perOrder.projection10k, null); // No 10k projection for per-order
+assert.equal(perOrder.revenueGhs, "10");
+assert.equal(perOrder.grossProfitGhs, "0.4");
+assert.equal(perOrder.grossMarginPercent, "4");
+assert.equal(perOrder.markupPercent, "4.16");
+assert.equal(perOrder.projection10k?.revenueGhs, "50");
+assert.equal(perOrder.projection10k?.providerCostGhs, "9.6");
+assert.equal(perOrder.projection10k?.profitGhs, "40.4");
 assert.equal(perOrder.grossProfitGhsPer1000, null);
 
 console.log("pricing-engine-tests: ALL TESTS PASSED SUCCESSFULLY");

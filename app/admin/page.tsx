@@ -1,27 +1,29 @@
 import Link from "next/link";
 import { requireAdmin } from "../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../lib/supabase/server";
+import { AdminQueryError } from "./AdminDataState";
 
 export default async function AdminPage() {
   const { admin } = await requireAdmin();
   if (!admin) return null;
   const db = createSupabaseAdminClient();
   const [
-    { count: customers },
-    { count: orders },
-    { data: wallets },
-    { data: recent },
-    { data: providerHealth },
-    { count: catalogCount }
+    { count: customers, error: customersError },
+    { count: orders, error: ordersError },
+    { data: wallets, count: walletCount, error: walletsError },
+    { data: recent, error: recentError },
+    { data: providerHealth, error: providerHealthError },
+    { count: catalogCount, error: catalogError }
   ] = await Promise.all([
     db.from("profiles").select("id", { count: "exact", head: true }),
     db.from("orders").select("id", { count: "exact", head: true }),
-    db.from("wallets").select("balance_minor").limit(1000),
+    db.from("wallets").select("balance_minor,currency", { count: "exact" }).order("created_at", { ascending: true }).limit(1000),
     db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status,created_at,profiles(email),services(name)").order("created_at", { ascending: false }).limit(10),
     db.from("provider_health").select("configured,balance,balance_currency,last_balance_check,balance_status").eq("provider", "reliablesmm").maybeSingle(),
     db.from("provider_catalog_services").select("id", { count: "exact", head: true }).eq("provider", "reliablesmm")
   ]);
-  const liability = (wallets ?? []).reduce((sum, wallet) => sum + Number(wallet.balance_minor ?? 0), 0);
+  const ghsBalanceSample = (wallets ?? []).filter((wallet) => wallet.currency === "GHS").reduce((sum, wallet) => sum + Number(wallet.balance_minor ?? 0), 0);
+  const walletSampleComplete = walletCount !== null && walletCount <= (wallets?.length ?? 0);
 
   return (
     <div className="admin-overview">
@@ -31,26 +33,30 @@ export default async function AdminPage() {
           <h1>WELCOME BACK PLAY.ATO</h1>
           <p>Monitor VANTA operations and manage activity in real time.</p>
         </div>
-        <span className="admin-live-badge">● Live data</span>
+        <span className="admin-live-badge">{[customersError, ordersError, walletsError, recentError, providerHealthError, catalogError].some(Boolean) ? "● Some data unavailable" : "● Live data"}</span>
         <div className="admin-overview-mark" aria-hidden="true">V</div>
       </header>
       <div className="admin-summary-layout">
         <div className="admin-side-stats">
           <article className="admin-kpi-card">
             <span>Total orders</span>
-            <strong>{orders ?? 0}</strong>
+            {ordersError ? <AdminQueryError message="Order count unavailable." /> : <strong>{orders ?? "Unavailable"}</strong>}
             <small>All time orders</small>
           </article>
           <article className="admin-kpi-card">
             <span>Customers</span>
-            <strong>{customers ?? 0}</strong>
+            {customersError ? <AdminQueryError message="Customer count unavailable." /> : <strong>{customers ?? "Unavailable"}</strong>}
             <small>Registered users</small>
           </article>
         </div>
         <article className="admin-wallet-focus">
-          <span>Wallet balance</span>
-          <strong>{(liability / 100).toFixed(2)} <em>GHS</em></strong>
-          <small>Available liability across customer wallets</small>
+          <span>GHS wallet balance sample</span>
+          {walletsError ? <AdminQueryError message="Wallet balance sample unavailable." /> : (
+            <>
+              <strong>{(ghsBalanceSample / 100).toFixed(2)} <em>GHS</em></strong>
+              <small>{walletSampleComplete ? `GHS balances among all ${walletCount ?? 0} wallets` : `GHS balances among up to 1,000 of ${walletCount ?? "unknown"} wallets; not total liability`}</small>
+            </>
+          )}
           <div className="admin-wallet-orbit" aria-hidden="true" />
         </article>
       </div>
@@ -63,7 +69,7 @@ export default async function AdminPage() {
             </div>
             <Link href="/admin/orders">View all →</Link>
           </div>
-          {(recent ?? []).length === 0 ? (
+          {recentError ? <AdminQueryError message="Recent orders could not be loaded." /> : (recent ?? []).length === 0 ? (
             <div className="admin-empty">
               <div className="empty-icon">V</div>
               <h3>No orders yet</h3>
@@ -106,29 +112,35 @@ export default async function AdminPage() {
               <h2>Provider health</h2>
               <p>ReliableSMM account status.</p>
             </div>
-            <span className={`provider-health-status ${providerHealth?.balance_status === "SUCCEEDED" ? "is-good" : ""}`}>
-              {providerHealth?.configured ? "Configured" : "Not configured"}
-            </span>
+            {providerHealthError ? <AdminQueryError message="Provider health is unavailable." /> : (
+              <span className={`provider-health-status ${providerHealth?.balance_status === "SUCCEEDED" ? "is-good" : ""}`}>
+                {providerHealth ? providerHealth.configured ? "Configured" : "Not configured" : "No health record"}
+              </span>
+            )}
           </div>
-          <div className="provider-health-grid">
-            <div>
-              <span>Catalog</span>
-              <strong>{catalogCount ?? 0}</strong>
-            </div>
-            <div>
-              <span>Balance</span>
-              <strong>{providerHealth?.balance ?? "—"} {providerHealth?.balance_currency ?? ""}</strong>
-            </div>
-            <div>
-              <span>Status</span>
-              <strong>{providerHealth?.balance_status ?? "—"}</strong>
-            </div>
-            <div>
-              <span>Last check</span>
-              <strong>{providerHealth?.last_balance_check ? new Date(providerHealth.last_balance_check).toLocaleDateString() : "—"}</strong>
-            </div>
-          </div>
-          <small>Read-only provider monitoring. Write operations remain disabled.</small>
+          {providerHealthError ? null : (
+            <>
+              <div className="provider-health-grid">
+                <div>
+                  <span>Catalog</span>
+                  {catalogError ? <AdminQueryError message="Catalog count unavailable." /> : <strong>{catalogCount ?? "Unavailable"}</strong>}
+                </div>
+                <div>
+                  <span>Balance</span>
+                  <strong>{providerHealth?.balance ?? "—"} {providerHealth?.balance_currency ?? ""}</strong>
+                </div>
+                <div>
+                  <span>Status</span>
+                  <strong>{providerHealth?.balance_status ?? "—"}</strong>
+                </div>
+                <div>
+                  <span>Last check</span>
+                  <strong>{providerHealth?.last_balance_check ? new Date(providerHealth.last_balance_check).toLocaleDateString() : "—"}</strong>
+                </div>
+              </div>
+              <small>Read-only provider monitoring. Write operations remain disabled.</small>
+            </>
+          )}
         </section>
       </div>
     </div>

@@ -2,6 +2,7 @@ import "server-only";
 
 import { createSupabaseAdminClient } from "../supabase/server";
 import { verifyPaystack, amountToMinorUnits } from "./paystack";
+import { assertPayableOrderTotal } from "../pricing/customer-price";
 
 type PaystackVerificationResponse = Awaited<ReturnType<typeof verifyPaystack>>;
 
@@ -17,6 +18,7 @@ export async function verifyAndSettlePaystack(
   const { data: order, error: orderError } = await admin.from("orders").select("id,total,currency,status,payment_status").eq("id", payment.order_id).eq("user_id", payment.user_id).maybeSingle();
   if (orderError) throw orderError;
   if (!order || order.id !== payment.order_id) return { found: false, paid: false };
+  assertPayableOrderTotal(order.total);
   const response = verifiedResponse ?? await verifyPaystack(reference);
   if (response.status !== true) return { found: true, paid: false };
   const transaction = response.data || {};

@@ -91,6 +91,15 @@ function loadSettlement({
         verifyPaystack,
       };
     }
+    if (specifier === "../pricing/customer-price") {
+      return {
+        assertPayableOrderTotal(value) {
+          const [whole, fraction = ""] = String(value).split(".");
+          const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+          if (cents < 1n) throw new Error("Order total must be at least GHS 0.01.");
+        },
+      };
+    }
     throw new Error(`Unexpected import in settlement test: ${specifier}`);
   };
   vm.runInNewContext(compiled, { module, exports: module.exports, require });
@@ -134,6 +143,15 @@ function loadInitializationRoute(settlement) {
     }
     if (specifier === "../../../../lib/payments/settle") {
       return { verifyAndSettlePaystack: settlement.verifyAndSettlePaystack };
+    }
+    if (specifier === "../../../../lib/pricing/customer-price") {
+      return {
+        assertPayableOrderTotal(value) {
+          const [whole, fraction = ""] = String(value).split(".");
+          const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+          if (cents < 1n) throw new Error("Order total must be at least GHS 0.01.");
+        },
+      };
     }
     if (specifier === "../../../../lib/security/rate-limit") {
       return {
@@ -182,6 +200,26 @@ function loadInitializationRoute(settlement) {
   assert.equal(response.status, 409);
   assert.equal(test.verificationCalls, 1, "existing-payment initialization verifies with the provider once");
   assert.equal(test.rpcCalls.length, 1, "the same provider response reaches settlement");
+}
+
+{
+  const test = loadSettlement({ orderRecord: { ...order, total: "0.00" } });
+  const post = loadInitializationRoute(test);
+  const response = await post(new Request("http://localhost/api/payments/initialize", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ order_id: "VNT-123" }),
+  }));
+  assert.equal(response.status, 409, "zero-total orders cannot initialize Paystack");
+  assert.equal(test.verificationCalls, 0);
+  assert.equal(test.rpcCalls.length, 0);
+}
+
+{
+  const test = loadSettlement({ orderRecord: { ...order, total: "0.00" } });
+  await assert.rejects(test.verifyAndSettlePaystack(payment.reference, payment.user_id, validResponse), /at least GHS 0\.01/);
+  assert.equal(test.verificationCalls, 0, "a zero-total payment is rejected before provider verification");
+  assert.equal(test.rpcCalls.length, 0, "a zero-total payment never reaches settlement");
 }
 
 for (const status of ["failed", "pending", "abandoned", "reversed", undefined]) {

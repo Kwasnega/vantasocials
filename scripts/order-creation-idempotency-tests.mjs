@@ -8,6 +8,21 @@ const routeSource = fs.readFileSync("app/api/orders/route.ts", "utf8");
 const compiledRoute = ts.transpileModule(routeSource, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
+function loadTypeScript(source, dependencies = {}) {
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  const module = { exports: {} };
+  vm.runInNewContext(compiled, {
+    module,
+    exports: module.exports,
+    require(specifier) {
+      if (specifier in dependencies) return dependencies[specifier];
+      throw new Error(`Unexpected import in focused test: ${specifier}`);
+    },
+  });
+  return module.exports;
+}
 const migration = fs.readFileSync("supabase/migrations/20261012000000_order_creation_idempotency.sql", "utf8");
 const clientSource = fs.readFileSync("components/services/ServiceConfigurator.tsx", "utf8");
 const serviceId = "service-1";
@@ -30,8 +45,11 @@ const platform = { id: platformId, active: true };
 const defaultInputFields = [{
   key: "username",
   label: "Username",
+  input_type: "text",
   required: true,
-  inputType: "text",
+  display_order: 1,
+  schema_version: 1,
+  active: true,
 }];
 
 function makeDatabase({
@@ -40,13 +58,15 @@ function makeDatabase({
   activeDynamicFields = 0,
   inputFields = defaultInputFields,
   insertError = null,
+  dynamicFieldsError = null,
   holdInitialIdempotencyLookups = false,
 } = {}) {
   const inserted = orders;
   let nextId = inserted.length + 1;
   const calls = [];
   let currentServiceRecord = currentService;
-  let dynamicFieldCount = activeDynamicFields;
+  let dynamicFieldRows = activeDynamicFields > 0 ? inputFields : [];
+  let validatedFieldRows = null;
   let initialKeyLookups = 0;
   let releaseInitialKeyLookups;
   const initialKeyLookupBarrier = new Promise((resolve) => {
@@ -65,6 +85,11 @@ function makeDatabase({
         },
         eq(column, value) {
           query.filters.push([column, value]);
+          return this;
+        },
+        order(column, options) {
+          query.orders ??= [];
+          query.orders.push([column, options]);
           return this;
         },
         insert(body) {
@@ -124,7 +149,10 @@ function makeDatabase({
     if (query.table === "services") return { data: currentServiceRecord && matches(currentServiceRecord) ? currentServiceRecord : null, error: null };
     if (query.table === "platforms") return { data: matches(platform) ? platform : null, error: null };
     if (query.table === "provider_catalog_services") return { data: null, error: null };
-    if (query.table === "service_input_fields") return { count: dynamicFieldCount, data: null, error: null };
+    if (query.table === "service_input_fields") {
+      query.resultData = dynamicFieldRows;
+      return { data: dynamicFieldRows, error: dynamicFieldsError };
+    }
     throw new Error(`Unexpected table read in order idempotency test: ${query.table}`);
   }
 
@@ -133,11 +161,20 @@ function makeDatabase({
     orders: inserted,
     calls,
     inputFields,
+    get validatedFieldRows() {
+      return validatedFieldRows;
+    },
+    setValidatedFieldRows(rows) {
+      validatedFieldRows = rows;
+    },
+    get dynamicFieldQueries() {
+      return calls.filter((query) => query.table === "service_input_fields");
+    },
     setCurrentService(value) {
       currentServiceRecord = value;
     },
     setDynamicFieldCount(value) {
-      dynamicFieldCount = value;
+      dynamicFieldRows = value > 0 ? inputFields : [];
     },
   };
 }
@@ -155,9 +192,17 @@ function validateDynamicValues(fields, submitted) {
   return values;
 }
 
-function loadPost({ db, authenticatedUser = { id: userId }, currentDynamicFields } = {}) {
+function loadPost({ db, authenticatedUser = { id: userId } } = {}) {
   const module = { exports: {} };
   const require = (specifier) => {
+    if (specifier === "../../../lib/pricing/customer-price") {
+      const compiled = ts.transpileModule(fs.readFileSync("lib/pricing/customer-price.ts", "utf8"), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+      }).outputText;
+      const helperModule = { exports: {} };
+      vm.runInNewContext(compiled, { module: helperModule, exports: helperModule.exports, Error });
+      return helperModule.exports;
+    }
     if (specifier === "node:crypto") return crypto;
     if (specifier === "next/server") {
       return { NextResponse: { json: (body, init) => ({ body, status: init?.status ?? 200 }) } };
@@ -182,10 +227,10 @@ function loadPost({ db, authenticatedUser = { id: userId }, currentDynamicFields
         validateDynamicFieldValues(fields, values) {
           return { validatedValues: validateDynamicValues(fields, values) };
         },
-        async validateDynamicOrderInput(_id, values) {
-          const fields = currentDynamicFields ?? db.inputFields;
+        validateDynamicOrderInput(fields, values) {
+          db.setValidatedFieldRows(fields);
           return {
-            schemaVersion: 1,
+            schemaVersion: Math.max(1, ...fields.map((field) => Number(field.schema_version ?? 1))),
             schemaSnapshot: fields,
             validatedValues: validateDynamicValues(fields, values),
           };
@@ -226,6 +271,7 @@ function loadPost({ db, authenticatedUser = { id: userId }, currentDynamicFields
     module,
     exports: module.exports,
     require,
+    Error,
     console: { error() {} },
   });
   return module.exports.POST;
@@ -260,6 +306,13 @@ async function submit(post, requestKey, body, uid = userId) {
   assert.equal(db.orders.length, 1, "the first submission creates exactly one order");
   assert.equal(response.body.total, "25.00");
   assert.equal(db.orders[0].idempotency_fingerprint.length, 64);
+  assert.equal(db.dynamicFieldQueries.length, 1, "legacy orders still check active dynamic fields once");
+  assert.deepEqual(db.dynamicFieldQueries[0].filters, [["service_id", serviceId], ["active", true]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(db.dynamicFieldQueries[0].orders)), [
+    ["display_order", { ascending: true }],
+    ["created_at", { ascending: true }],
+  ]);
+  assert.equal(db.dynamicFieldQueries[0].columns, "id,key,label,input_type,required,display_order,placeholder,help_text,validation_config,active,schema_version");
 }
 
 {
@@ -274,6 +327,7 @@ async function submit(post, requestKey, body, uid = userId) {
   const db = makeDatabase();
   const post = loadPost({ db });
   const first = await submit(post, key(2), legacyBody());
+  const fieldQueryCount = db.dynamicFieldQueries.length;
   const replay = await submit(post, key(2), legacyBody({
     service_id: serviceId.toUpperCase(),
     target_value: "https://instagram.com/example-user",
@@ -282,6 +336,123 @@ async function submit(post, requestKey, body, uid = userId) {
   assert.equal(replay.status, 200, "a normalized equivalent intent is replayed");
   assert.equal(replay.body.id, first.body.id);
   assert.equal(db.orders.length, 1);
+  assert.equal(db.dynamicFieldQueries.length, fieldQueryCount, "matching replays return before additional schema reads");
+}
+
+{
+  const customerPricing = loadTypeScript(fs.readFileSync("lib/pricing/customer-price.ts", "utf8"));
+  const serviceCreation = loadTypeScript(
+    fs.readFileSync("lib/admin/service-creation.ts", "utf8"),
+    { "../pricing/customer-price": customerPricing },
+  );
+  const paystack = loadTypeScript(fs.readFileSync("lib/payments/paystack.ts", "utf8"), { "server-only": {} });
+  const serviceInput = (price) => ({
+    platformId: platformId,
+    name: "Instagram Followers",
+    category: "Followers",
+    description: "",
+    serviceType: "standard",
+    targetType: "url",
+    minQuantity: "1",
+    maxQuantity: "10000",
+    sellingPricePer1000: price,
+    currency: "GHS",
+  });
+
+  for (const [digit, quantity, expectedTotal] of [
+    [31, 1000, "5.00"],
+    [32, 2000, "10.00"],
+    [33, 5000, "25.00"],
+    [34, 10000, "50.00"],
+  ]) {
+    const { sellingRatePerUnit } = serviceCreation.validateCreateServiceInput(serviceInput("5"));
+    const db = makeDatabase({ currentService: { ...service, min_quantity: 1, selling_rate: sellingRatePerUnit } });
+    const post = loadPost({ db });
+    const response = await submit(post, key(digit), legacyBody({ quantity }));
+    assert.equal(response.status, 201);
+    assert.equal(db.orders[0].unit_price, "0.005", "the saved snapshot stays GHS per individual unit");
+    assert.equal(db.orders[0].total, expectedTotal);
+    assert.equal(db.orders[0].subtotal, expectedTotal);
+    const savedOrder = {
+      ...db.orders[0],
+      user_id: userId,
+      services: {
+        name: "Instagram Followers",
+        slug: "instagram-followers",
+        category: "Followers",
+        platforms: { name: "Instagram", slug: "instagram" },
+      },
+    };
+    const checkout = loadTypeScript(
+      fs.readFileSync("lib/orders/checkout.ts", "utf8"),
+      {
+        "server-only": {},
+        "../supabase/server": {
+          getCurrentUser: async () => ({ id: userId, email: "customer@example.test" }),
+          createSupabaseAdminClient: () => ({
+            from(table) {
+              return {
+                select() { return this; },
+                eq() { return this; },
+                async maybeSingle() {
+                  return { data: table === "orders" ? savedOrder : { balance_minor: "0" }, error: null };
+                },
+              };
+            },
+          }),
+        },
+      },
+    );
+    const checkoutOrder = await checkout.getCheckoutOrder(savedOrder.public_order_id);
+    assert.equal(checkoutOrder.unit_price, "0.005");
+    assert.equal(checkoutOrder.total, expectedTotal, "checkout uses the saved order total");
+    assert.equal(paystack.amountToMinorUnits(checkoutOrder.total), BigInt(expectedTotal.replace(".", "")));
+  }
+
+  {
+    const db = makeDatabase({ currentService: { ...service, min_quantity: 1, selling_rate: 0.005 } });
+    const response = await submit(loadPost({ db }), key(39), legacyBody({ quantity: 1000 }));
+    assert.equal(response.status, 201, "numeric database rates are accepted when exactly representable");
+    assert.equal(db.orders[0].unit_price, "0.005");
+    assert.equal(db.orders[0].total, "5.00");
+  }
+
+  {
+    const { sellingRatePerUnit } = serviceCreation.validateCreateServiceInput(serviceInput("0.001"));
+    const db = makeDatabase({ currentService: { ...service, min_quantity: 1, selling_rate: sellingRatePerUnit } });
+    const response = await submit(loadPost({ db }), key(35), legacyBody({ quantity: 100 }));
+    assert.equal(response.status, 400, "a rounded-zero order is rejected as validation");
+    assert.match(response.body.error, /at least GHS 0\.01/);
+    assert.equal(db.orders.length, 0, "rounded-zero totals are rejected before order insertion");
+  }
+
+  {
+    const { sellingRatePerUnit } = serviceCreation.validateCreateServiceInput(serviceInput("0.001"));
+    const db = makeDatabase({ currentService: { ...service, min_quantity: 1, selling_rate: sellingRatePerUnit } });
+    const response = await submit(loadPost({ db }), key(36), legacyBody({ quantity: 5000 }));
+    assert.equal(response.status, 201);
+    assert.equal(db.orders[0].total, "0.01");
+    assert.equal(paystack.amountToMinorUnits(db.orders[0].total), 1n);
+  }
+
+  {
+    const db = makeDatabase({
+      currentService: {
+        ...service,
+        min_quantity: 1,
+        max_quantity: 10001,
+        selling_rate: "999999999999.9998",
+      },
+    });
+    const post = loadPost({ db });
+    const atLimit = await submit(post, key(37), legacyBody({ quantity: 10000 }));
+    assert.equal(atLimit.status, 201);
+    assert.equal(db.orders[0].total, "9999999999999998.00", "largest tested safely serializable value is accepted");
+    const overLimit = await submit(post, key(38), legacyBody({ quantity: 10001 }));
+    assert.equal(overLimit.status, 400, "the first tested amount above numeric(18,2) is rejected");
+    assert.match(overLimit.body.error, /supported GHS amount range/);
+    assert.equal(db.orders.length, 1, "the out-of-range order is rejected before insertion");
+  }
 }
 
 for (const changed of [
@@ -292,9 +463,11 @@ for (const changed of [
   const db = makeDatabase();
   const post = loadPost({ db });
   await submit(post, key(3), legacyBody());
+  const fieldQueryCount = db.dynamicFieldQueries.length;
   const conflict = await submit(post, key(3), changed);
   assert.equal(conflict.status, 409);
   assert.equal(db.orders.length, 1, "a different intent cannot change or duplicate the original order");
+  assert.equal(db.dynamicFieldQueries.length, fieldQueryCount, "replay mismatches return before additional schema reads");
 }
 
 {
@@ -340,6 +513,7 @@ for (const changed of [
   const post = loadPost({ db });
   const body = { service_id: serviceId, quantity: 10, input_values: { username: " alice " } };
   const created = await submit(post, key(8), body);
+  const fieldQuery = db.dynamicFieldQueries[0];
   db.setCurrentService(null);
   db.setDynamicFieldCount(0);
   const replay = await submit(post, key(8), { ...body, input_values: { username: "alice" } });
@@ -347,6 +521,33 @@ for (const changed of [
   assert.equal(replay.status, 200, "stored dynamic-input schema supports recovery after catalog changes");
   assert.equal(replay.body.id, created.body.id);
   assert.equal(db.orders.length, 1);
+  assert.equal(db.dynamicFieldQueries.length, 1, "a new dynamic order performs exactly one field query");
+  assert.equal(db.validatedFieldRows, fieldQuery.resultData);
+  assert.equal(db.orders[0].input_schema_snapshot, db.validatedFieldRows, "the fetched field rows drive the persisted schema snapshot");
+}
+
+{
+  const db = makeDatabase({ activeDynamicFields: 1 });
+  const post = loadPost({ db });
+  const response = await submit(post, key(13), {
+    service_id: serviceId,
+    quantity: 10,
+    input_values: { username: "alice" },
+  });
+  assert.equal(response.status, 201);
+  assert.equal(db.dynamicFieldQueries.length, 1);
+  assert.equal(db.validatedFieldRows, db.inputFields, "the validator receives the exact result rows from the single query");
+  assert.deepEqual(db.orders[0].input_schema_snapshot, db.inputFields);
+}
+
+{
+  const queryError = { code: "XX000", message: "field schema unavailable" };
+  const db = makeDatabase({ dynamicFieldsError: queryError });
+  const post = loadPost({ db });
+  const response = await submit(post, key(14), legacyBody());
+  assert.equal(response.status, 500, "active-field query errors are not treated as an empty legacy schema");
+  assert.equal(db.orders.length, 0);
+  assert.equal(db.dynamicFieldQueries.length, 1);
 }
 
 {
@@ -417,7 +618,8 @@ for (const invalidKey of [
     assert.match(body, /"Idempotency-Key": requestKey/);
     assert.match(body, /catch \{[\s\S]*?setSubmitting\(false\);/);
     assert.doesNotMatch(body.match(/catch \{[\s\S]*?\n    \}/)?.[0] ?? "", /beginDifferentOrderIntent/);
-    assert.match(body, /beginDifferentOrderIntent\(\);\s*window\.location\.href/);
+    assert.match(body, /beginDifferentOrderIntent\(\);\s*router\.push\(`\/checkout\?order=\$\{encodeURIComponent\(result\.public_order_id\)\}`\)/);
+    assert.match(body, /typeof result\.public_order_id !== "string" \|\| !result\.public_order_id\.trim\(\)/);
   }
   assert.match(clientSource, /useRef<StoredOrderIntent \| null>\(null\)/);
   assert.match(clientSource, /crypto\.randomUUID\(\)/);

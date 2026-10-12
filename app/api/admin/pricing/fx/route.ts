@@ -12,7 +12,8 @@ export async function PATCH(request: Request) {
   const fxRate = typeof body?.fx_rate === "string" ? body.fx_rate.trim() : "";
   if (!/^\d+(\.\d{1,12})?$/.test(fxRate) || Number(fxRate) <= 0) return NextResponse.json({ error: "fx_rate must be a positive decimal." }, { status: 400 });
   const db = createSupabaseAdminClient();
-  const { data: previous } = await db.from("pricing_settings").select("fx_rate").eq("key", "USD_GHS").maybeSingle();
+  const { data: previous, error: readError } = await db.from("pricing_settings").select("fx_rate").eq("key", "USD_GHS").maybeSingle();
+  if (readError) return NextResponse.json({ error: "Unable to load existing FX rate for audit." }, { status: 500 });
   const { error } = await db.from("pricing_settings").upsert({ key: "USD_GHS", fx_rate: fxRate, fx_source: "MANUAL", updated_by: user.id, updated_at: new Date().toISOString() });
   if (error) return NextResponse.json({ error: "Unable to update FX rate." }, { status: 500 });
   const audit = await db.from("pricing_audit_log").insert({ service_id: null, field: "fx_rate", old_value: previous?.fx_rate ?? null, new_value: fxRate, changed_by: user.id });

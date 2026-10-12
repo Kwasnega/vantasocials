@@ -6,13 +6,15 @@ import { PricingControl } from "./PricingControl";
 import { CreateServiceCard, type AdminPlatform } from "./CreateServiceCard";
 import { DeleteServiceButton } from "./DeleteServiceButton";
 import { getPlatformLogoUrl } from "../../../lib/catalog/logo";
+import { AdminEmptyState, AdminQueryError } from "../AdminDataState";
+import { unitRateToAdminPricePer1000 } from "../../../lib/pricing/customer-price";
 
 type Service = {
   id: string;
   slug: string;
   name: string;
   active: boolean;
-  selling_rate: number;
+  selling_rate: string | number;
   currency: string;
   provider: string | null;
   provider_service_id: string | null;
@@ -40,7 +42,7 @@ function ServiceTable({
           <tr>
             {showPlatform && <th>Platform</th>}
             <th>Service</th>
-            <th>Customer price</th>
+            <th>Customer price / 1,000</th>
             <th>Published</th>
             <th>Provider mapping</th>
             <th>Last sync</th>
@@ -56,7 +58,7 @@ function ServiceTable({
                 <small>{service.slug}</small>
               </td>
               <td>
-                {service.selling_rate} {service.currency}
+                {unitRateToAdminPricePer1000(service.selling_rate)} {service.currency}
               </td>
               <td>
                 <span className={`service-status ${service.active ? "is-active" : ""}`}>
@@ -118,7 +120,11 @@ export default async function AdminServicesPage() {
   if (!admin) return null;
 
   const db = createSupabaseAdminClient();
-  const [{ data: servicesData }, { data: setting }, { data: platformsData }] = await Promise.all([
+  const [
+    { data: servicesData, error: servicesError },
+    { data: setting, error: settingError },
+    { data: platformsData, error: platformsError },
+  ] = await Promise.all([
     db
       .from("services")
       .select(
@@ -162,7 +168,7 @@ export default async function AdminServicesPage() {
       </header>
 
       {/* Top Action Card */}
-      <div className="dashboard-card create-service-card" style={{ marginBottom: "20px" }}>
+      {platformsError ? <AdminQueryError message="Platforms could not be loaded. Service creation is unavailable until this is resolved." /> : <div className="dashboard-card create-service-card" style={{ marginBottom: "20px" }}>
         <div>
           <p className="dashboard-kicker">VANTA CATALOG</p>
           <h2>Add Services by Platform</h2>
@@ -171,13 +177,16 @@ export default async function AdminServicesPage() {
           </p>
         </div>
         <CreateServiceCard platforms={platformsWithCounts} />
-      </div>
+      </div>}
+      {servicesError && <AdminQueryError message="Service records could not be loaded. Catalog counts and lists are unavailable." />}
+      {platformsError && <AdminQueryError message="Active platforms could not be loaded." />}
+      {settingError && <AdminQueryError message="Pricing settings could not be loaded. Pricing previews may be unavailable." />}
 
       {/* Summary KPI Strip */}
-      <section className="services-summary">
+      {!servicesError && <section className="services-summary">
         <article>
           <span>Platforms</span>
-          <strong>{platforms.length}</strong>
+          {platformsError ? <AdminQueryError message="Unavailable" /> : <strong>{platforms.length}</strong>}
           <small>Active social platforms</small>
         </article>
         <article>
@@ -195,11 +204,12 @@ export default async function AdminServicesPage() {
           <strong>{services.filter((s) => !s.provider).length}</strong>
           <small>Need provider mapping</small>
         </article>
-      </section>
+      </section>}
 
       {/* Published services only; this mirrors the customer-visible catalog. */}
-      <div className="service-category-list">
-        {livePlatforms.map((platform, index) => {
+      {!servicesError && <div className="service-category-list">
+        {platformsError ? <AdminQueryError message="Published service groups could not be loaded because platform data is unavailable." /> : null}
+        {!platformsError && livePlatforms.map((platform, index) => {
           const platformServices = publishedServices.filter((s) => s.platform_id === platform.id);
           const logoUrl = getPlatformLogoUrl(platform.slug);
 
@@ -251,14 +261,10 @@ export default async function AdminServicesPage() {
             </details>
           );
         })}
-        {livePlatforms.length === 0 && (
-          <p className="dashboard-card" style={{ padding: "24px", color: "#a99bb2" }}>
-            No services are currently published on the homepage.
-          </p>
-        )}
-      </div>
+        {!platformsError && livePlatforms.length === 0 && <AdminEmptyState message="No services are currently published on the homepage." />}
+      </div>}
 
-      {hiddenServices.length > 0 && (
+      {!servicesError && hiddenServices.length > 0 && (
         <details className="service-category" style={{ marginTop: "24px" }}>
           <summary className="service-category-heading">
             <span className="service-category-platform">

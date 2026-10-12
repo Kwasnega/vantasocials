@@ -88,7 +88,7 @@ export async function fulfillReliableSMMOrder(input: { orderId: string; vantaSlu
   const providerService = catalog.find((service) => String(service.service) === order.provider_service_id);
   if (!providerService) throw new Error("ReliableSMM service is unavailable.");
   const rate = String(approvedCatalog.provider_rate);
-  const providerCost = reliableSMMCost(rate, input.quantity);
+  const providerCost = reliableSMMCost(rate, input.quantity, approvedCatalog.rate_unit);
   const key = `vanta:${order.id}:reliablesmm:${order.provider_service_id}`;
   const { data: existing } = await admin.from("provider_orders").select("id,attempt_status,provider_order_id,status").eq("idempotency_key", key).maybeSingle();
   if (existing?.attempt_status === "FAILED_BEFORE_SUBMISSION") {

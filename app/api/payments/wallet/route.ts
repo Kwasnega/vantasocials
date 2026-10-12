@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../../lib/supabase/server";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
+import { assertPayableOrderTotal } from "../../../../lib/pricing/customer-price";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -24,6 +25,11 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (orderError) throw orderError;
     if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
+    try {
+      assertPayableOrderTotal(order.total);
+    } catch (validationError) {
+      return NextResponse.json({ error: validationError instanceof Error ? validationError.message : "Order total is not payable." }, { status: 409 });
+    }
     if (order.currency !== "GHS") return NextResponse.json({ error: "Wallet payments require GHS orders." }, { status: 409 });
     if (order.fulfillment_status !== "NOT_STARTED") return NextResponse.json({ error: "Order is not available for wallet payment." }, { status: 409 });
     if (order.payment_status === "PAID") return NextResponse.json(order);

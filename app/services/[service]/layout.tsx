@@ -1,7 +1,9 @@
-import { AccountSidebar } from "../../../components/dashboard/AccountSidebar";
-import { requireUser } from "../../../lib/auth/require-user";
+import { AuthenticatedDashboardLayout } from "../../../components/dashboard/AuthenticatedDashboardLayout";
 
 export default async function ServiceLayout({ children }: { children: React.ReactNode }) {
-  const { user } = await requireUser("/new-order");
-  return <main className="dashboard-shell"><AccountSidebar email={user.email ?? ""} /><section className="dashboard-content">{children}</section></main>;
+  return (
+    <AuthenticatedDashboardLayout nextPath="/new-order" loadingVariant="service">
+      {children}
+    </AuthenticatedDashboardLayout>
+  );
 }

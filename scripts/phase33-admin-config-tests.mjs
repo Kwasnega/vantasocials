@@ -31,11 +31,12 @@ const eligibleCatalog = {
   provider_service_id: "5911",
   name: "Instagram Likes",
   provider_status: "ACTIVE",
+  provider_rate: "2.5",
   provider_currency: "USD",
   rate_unit: "PER_1000",
   min_quantity: 100,
   max_quantity: 250000,
-  raw_metadata: { platform: "instagram", target_type: "url", description: "Instagram likes" },
+  raw_metadata: { platform: "instagram", target_type: "url", category: "Instagram Likes", description: "Instagram likes" },
 };
 assert.doesNotThrow(() => ensureProviderMappingEligibility(eligibleService, eligibleCatalog));
 assert.throws(() => ensureProviderMappingEligibility(eligibleService, { ...eligibleCatalog, raw_metadata: { platform: "facebook", target_type: "page" } }));

@@ -1,7 +1,9 @@
-import { requireUser } from "../../lib/auth/require-user";
-import { AccountSidebar } from "../../components/dashboard/AccountSidebar";
+import { AuthenticatedDashboardLayout } from "../../components/dashboard/AuthenticatedDashboardLayout";
 
 export default async function AccountLayout({ children }: { children: React.ReactNode }) {
-  const { user } = await requireUser("/account");
-  return <main className="dashboard-shell"><AccountSidebar email={user.email ?? ""} /><section className="dashboard-content">{children}</section></main>;
+  return (
+    <AuthenticatedDashboardLayout nextPath="/account" loadingVariant="dashboard">
+      {children}
+    </AuthenticatedDashboardLayout>
+  );
 }

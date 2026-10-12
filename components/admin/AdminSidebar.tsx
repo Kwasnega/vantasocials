@@ -8,6 +8,7 @@ const items: Array<[string, string, string]> = [
   ["/admin/orders", "Orders", "◫"],
   ["/admin/customers", "Customers", "👥"],
   ["/admin/services", "Services", "⚡"],
+  ["/admin/pricing", "Pricing", "₵"],
   ["/admin/wallet", "Wallet", "💳"],
   ["/admin/settings", "Settings", "⚙"],
 ];

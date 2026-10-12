@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { calculatePricing, type RateUnit } from "../../../../../lib/pricing/engine";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
+import { adminPricePer1000ToUnitRate } from "../../../../../lib/pricing/customer-price";
 
 const PREVIEW_QUANTITY = 10000;
 
@@ -12,23 +13,31 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const serviceId = params.get("service_id") ?? "";
   const providerServiceId = params.get("provider_service_id") ?? "";
-  const sellingPrice = params.get("selling_price") ?? "";
-  if (!serviceId || !providerServiceId || !sellingPrice) {
+  const sellingPricePer1000 = params.get("sellingPricePer1000") ?? "";
+  if (!serviceId || !providerServiceId || !sellingPricePer1000) {
     return NextResponse.json({ error: "Complete pricing inputs are required." }, { status: 400 });
   }
   try {
     const db = createSupabaseAdminClient();
-    const [{ data: service }, { data: catalog }, { data: setting }] = await Promise.all([
+    const [
+      { data: service, error: serviceError },
+      { data: catalog, error: catalogError },
+      { data: setting, error: settingError },
+    ] = await Promise.all([
       db.from("services").select("id,currency").eq("id", serviceId).maybeSingle(),
       db.from("provider_catalog_services").select("provider_service_id,provider_rate,provider_currency,rate_unit,provider_status").eq("provider", "reliablesmm").eq("provider_service_id", providerServiceId).maybeSingle(),
       db.from("pricing_settings").select("fx_rate").eq("key", "USD_GHS").maybeSingle(),
     ]);
+    if (serviceError || catalogError || settingError) {
+      return NextResponse.json({ error: "Unable to load pricing preview data." }, { status: 500 });
+    }
     if (!service || service.currency !== "GHS") return NextResponse.json({ error: "VANTA service is unavailable." }, { status: 404 });
     if (!catalog || catalog.provider_status !== "ACTIVE" || catalog.provider_currency !== "USD") return NextResponse.json({ error: "Provider catalog pricing is unavailable." }, { status: 409 });
     const providerRateUnit = catalog.rate_unit as RateUnit;
     if (!["PER_1000", "PER_ORDER"].includes(providerRateUnit)) return NextResponse.json({ error: "Provider pricing basis requires review." }, { status: 409 });
     if (!setting?.fx_rate) return NextResponse.json({ error: "USD → GHS FX is not configured." }, { status: 409 });
-    return NextResponse.json(calculatePricing({ providerRate: String(catalog.provider_rate), providerRateUnit, providerCurrency: "USD", fxRate: String(setting.fx_rate), sellingPricePerUnit: sellingPrice, sellingCurrency: "GHS", quantity: PREVIEW_QUANTITY }));
+    const sellingRatePerUnit = adminPricePer1000ToUnitRate(sellingPricePer1000);
+    return NextResponse.json(calculatePricing({ providerRate: String(catalog.provider_rate), providerRateUnit, providerCurrency: "USD", fxRate: String(setting.fx_rate), sellingPricePerUnit: sellingRatePerUnit, sellingCurrency: "GHS", quantity: PREVIEW_QUANTITY }));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid pricing inputs." }, { status: 400 });
   }

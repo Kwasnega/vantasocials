@@ -5,7 +5,7 @@ import { validateProviderInputMapping, validateServiceInputField } from "../inpu
 import { getTargetContractForService } from "../targets/contracts";
 import { assessProviderEligibility } from "../targets/eligibility";
 import { assertAllowedProviderParameterKey } from "../fulfillment/reliablesmm/reserved-keys";
-import { resolveProviderCompatibility, resolveProviderPlatformCompatibility, sameProviderPlatform } from "./provider-compatibility";
+import { matchesApprovedProviderOperation, resolveProviderCompatibility, resolveProviderPlatformCompatibility } from "./provider-compatibility";
 
 export type NormalizedFieldDraft = ReturnType<typeof validateServiceInputField>;
 
@@ -125,25 +125,30 @@ export function normalizeMappingDraft(raw: unknown, field: ServiceInputField) {
   return validateProviderInputMapping(mapping, field);
 }
 
-export function ensureProviderMappingEligibility(service: { slug: string; target_type?: string | null; min_quantity?: number | null; max_quantity?: number | null; platforms?: { slug?: string | null; name?: string | null } | null }, catalogRow: { provider?: string | null; provider_service_id?: string | number | null; name?: string | null; provider_status?: string | null; provider_currency?: string | null; rate_unit?: string | null; min_quantity?: number | null; max_quantity?: number | null; raw_metadata?: unknown }) {
+export function ensureProviderMappingEligibility(service: { slug: string; target_type?: string | null; min_quantity?: number | null; max_quantity?: number | null; platforms?: { slug?: string | null; name?: string | null } | null }, catalogRow: { provider?: string | null; provider_service_id?: string | number | null; name?: string | null; provider_status?: string | null; provider_rate?: number | string | null; provider_currency?: string | null; rate_unit?: string | null; min_quantity?: number | null; max_quantity?: number | null; raw_metadata?: unknown }) {
   const targetContract = getTargetContractForService({
     slug: service.slug,
     targetType: service.target_type ?? null,
     platformSlug: service.platforms?.slug ?? null,
   });
-  const compatibility = resolveProviderCompatibility(catalogRow.raw_metadata ?? null);
+  const compatibility = resolveProviderCompatibility(catalogRow.raw_metadata ?? null, catalogRow.name ?? undefined);
   const platform = service.platforms ? { slug: service.platforms.slug ?? undefined, name: service.platforms.name ?? undefined } : null;
-  const platformCompatibility = resolveProviderPlatformCompatibility(catalogRow.raw_metadata ?? null, platform);
-  const dynamicCompatibilityVerified = Boolean(
-    compatibility.compatibility &&
-    platform &&
-    sameProviderPlatform(compatibility.compatibility.platform, platform) &&
-    compatibility.compatibility.targetType === service.target_type,
-  );
+  const platformCompatibility = resolveProviderPlatformCompatibility(catalogRow.raw_metadata ?? null, platform, catalogRow.name ?? undefined);
   const eligibility = assessProviderEligibility({
     serviceSlug: service.slug,
     targetContract,
-    dynamicCompatibilityVerified,
+    operationCompatibilityVerified: Boolean(
+      catalogRow.name &&
+      typeof (catalogRow.raw_metadata as { category?: unknown } | null)?.category === "string" &&
+      matchesApprovedProviderOperation(
+        service.slug,
+        String(catalogRow.provider_service_id ?? ""),
+        catalogRow.name,
+        String((catalogRow.raw_metadata as { category?: unknown }).category),
+      )
+    ),
+    expectedTargetType: service.target_type,
+    providerTargetType: compatibility.compatibility?.targetType,
     platformCompatibilityState: platformCompatibility.state,
     vantaMin: Number(service.min_quantity ?? 0),
     vantaMax: Number(service.max_quantity ?? 0),
@@ -152,6 +157,7 @@ export function ensureProviderMappingEligibility(service: { slug: string; target
       provider_service_id: String(catalogRow.provider_service_id ?? ""),
       name: String(catalogRow.name ?? ""),
       provider_status: String(catalogRow.provider_status ?? ""),
+      provider_rate: catalogRow.provider_rate ?? "",
       provider_currency: String(catalogRow.provider_currency ?? ""),
       rate_unit: String(catalogRow.rate_unit ?? ""),
       min_quantity: Number(catalogRow.min_quantity ?? 0),

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { CheckoutPayButton } from "./CheckoutPayButton";
 
@@ -15,6 +16,7 @@ export function CheckoutPaymentOptions({
   totalAmount: string;
   currency?: string;
 }) {
+  const router = useRouter();
   const balanceMajor = Number(balanceMinor || 0) / 100;
   const totalMajor = Number(totalAmount || 0);
   const hasSufficientBalance = balanceMajor >= totalMajor && totalMajor > 0;
@@ -25,11 +27,11 @@ export function CheckoutPaymentOptions({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
 
   async function payFromWallet() {
     setBusy(true);
     setError("");
+    let paymentWasRejected = false;
     try {
       const response = await fetch("/api/payments/wallet", {
         method: "POST",
@@ -37,28 +39,25 @@ export function CheckoutPaymentOptions({
         body: JSON.stringify({ order_id: orderId }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Unable to pay from wallet.");
-      setSuccess(true);
-      setTimeout(() => {
-        window.location.href = `/account/orders/${encodeURIComponent(orderId)}`;
-      }, 1200);
+      if (!response.ok) {
+        if (response.status >= 500) {
+          throw new Error("We couldn’t confirm the payment result. Check your order status before trying again.");
+        }
+        paymentWasRejected = true;
+        throw new Error(body.error || "Unable to pay from wallet.");
+      }
+
+      const confirmedOrder = body.order ?? body;
+      if (confirmedOrder.public_order_id !== orderId || confirmedOrder.payment_status !== "PAID") {
+        throw new Error("We couldn’t confirm the payment result. Check your order status before trying again.");
+      }
+      router.push(`/account/orders/${encodeURIComponent(confirmedOrder.public_order_id)}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to pay from wallet.");
+      setError(paymentWasRejected && cause instanceof Error
+        ? cause.message
+        : "We couldn’t confirm the payment result. Check your order status before trying again.");
       setBusy(false);
     }
-  }
-
-  if (success) {
-    return (
-      <div className="checkout-success-banner">
-        <div className="checkout-success-icon">✓</div>
-        <h3>Payment Successful!</h3>
-        <p>Your order #{orderId} has been paid and dispatched for fulfillment.</p>
-        <Link href={`/account/orders/${orderId}`} className="checkout-btn checkout-btn-success">
-          View Order Status →
-        </Link>
-      </div>
-    );
   }
 
   return (

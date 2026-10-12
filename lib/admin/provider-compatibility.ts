@@ -25,9 +25,13 @@ const KNOWN_PLATFORMS = [
   { platform: "threads", keywords: ["threads"] },
 ];
 
-function text(metadata: Metadata, keys: string[]) {
-  for (const key of keys) if (typeof metadata[key] === "string" && metadata[key].trim()) return metadata[key].trim().toLowerCase();
-  return null;
+function declaredText(metadata: Metadata, keys: string[]) {
+  const values = keys
+    .map((key) => metadata[key])
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim().toLowerCase());
+  if (values.length === 0) return { value: null, contradictory: false };
+  return { value: values[0], contradictory: values.some((value) => value !== values[0]) };
 }
 
 export function detectPlatformFromText(nameAndCategory: string): string | null {
@@ -42,29 +46,25 @@ export function detectPlatformFromText(nameAndCategory: string): string | null {
 
 export function resolveProviderCompatibility(rawMetadata: unknown, name?: string): { state: ProviderCompatibilityState; compatibility?: ProviderCompatibility; reason: string } {
   const metadata = rawMetadata && typeof rawMetadata === "object" ? rawMetadata as Metadata : {};
-  let platform = text(metadata, ["platform", "platform_name", "platformSlug", "platform_slug", "network"]);
-  let target = text(metadata, ["target_type", "targetType", "input_type", "inputType"]);
+  const platform = declaredText(metadata, ["platform", "platform_name", "platformSlug", "platform_slug", "network"]);
+  const target = declaredText(metadata, ["target_type", "targetType", "input_type", "inputType"]);
 
-  // If not explicitly in metadata, infer from name + category
-  if (!platform && (name || metadata.category || metadata.name)) {
-    const combined = `${name || ""} ${String(metadata.name || "")} ${String(metadata.category || "")}`;
-    platform = detectPlatformFromText(combined);
+  if (platform.contradictory || target.contradictory) {
+    return { state: "MISSING_METADATA", reason: "Provider platform or target metadata is contradictory." };
   }
-
-  // ReliableSMM services almost universally accept target URLs (or profile URLs)
-  if (!target) {
-    target = "url";
+  if (!name?.trim() || typeof metadata.category !== "string" || !metadata.category.trim()) {
+    return { state: "MISSING_METADATA", reason: "Provider service name and category metadata are required." };
   }
-
-  if (!platform) {
+  if (!platform.value) {
     return { state: "MISSING_METADATA", reason: "Provider platform could not be determined from catalog metadata." };
   }
-
-  if (!(TARGET_TYPES as readonly string[]).includes(target)) {
+  if (!target.value) {
+    return { state: "MISSING_METADATA", reason: "Provider target type must be explicitly declared in catalog metadata." };
+  }
+  if (!(TARGET_TYPES as readonly string[]).includes(target.value)) {
     return { state: "UNSUPPORTED_TARGET", reason: "Provider target/input requirement is not supported by VANTA." };
   }
-
-  return { state: "READY", compatibility: { platform, targetType: target as ServiceTargetType }, reason: "Ready to configure." };
+  return { state: "READY", compatibility: { platform: platform.value, targetType: target.value as ServiceTargetType }, reason: "Provider platform and target are explicitly declared." };
 }
 
 export function sameProviderPlatform(providerPlatform: string, vantaPlatform: { name?: string; slug?: string | null }) {
@@ -87,14 +87,31 @@ export function sameProviderPlatform(providerPlatform: string, vantaPlatform: { 
 
 export function resolveProviderPlatformCompatibility(rawMetadata: unknown, vantaPlatform: { name?: string; slug?: string | null } | null, name?: string): { state: PlatformCompatibilityState; reason: string } {
   const metadata = rawMetadata && typeof rawMetadata === "object" ? rawMetadata as Metadata : {};
-  let platform = text(metadata, ["platform", "platform_name", "platformSlug", "platform_slug", "network"]);
-
-  if (!platform && (name || metadata.category || metadata.name)) {
-    const combined = `${name || ""} ${String(metadata.name || "")} ${String(metadata.category || "")}`;
-    platform = detectPlatformFromText(combined);
+  const declared = declaredText(metadata, ["platform", "platform_name", "platformSlug", "platform_slug", "network"]);
+  if (declared.contradictory) return { state: "MISSING_METADATA", reason: "Provider platform metadata is contradictory." };
+  if (!name?.trim() || typeof metadata.category !== "string" || !metadata.category.trim() || !declared.value || !vantaPlatform) {
+    return { state: "MISSING_METADATA", reason: "Provider service name, category, and explicit platform metadata are required." };
   }
-
-  if (!platform || !vantaPlatform) return { state: "MISSING_METADATA", reason: "Provider platform metadata is incomplete." };
-  if (!sameProviderPlatform(platform, vantaPlatform)) return { state: "PLATFORM_MISMATCH", reason: "Provider platform does not match the VANTA platform." };
+  if (!sameProviderPlatform(declared.value, vantaPlatform)) return { state: "PLATFORM_MISMATCH", reason: "Provider platform does not match the VANTA platform." };
   return { state: "READY", reason: "Provider platform matches the VANTA platform." };
+}
+
+export function matchesApprovedProviderOperation(serviceSlug: string, providerServiceId: string, name: string, category: string) {
+  const approvedOperations: Record<string, { providerServiceId: string; servicePhrase: string; categoryPhrase: string }> = {
+    "instagram-likes": { providerServiceId: "5911", servicePhrase: "instagram likes", categoryPhrase: "instagram likes" },
+    "instagram-views": { providerServiceId: "7486", servicePhrase: "instagram video views", categoryPhrase: "instagram services" },
+    "instagram-saves": { providerServiceId: "7841", servicePhrase: "instagram saves", categoryPhrase: "instagram services" },
+    "tiktok-followers": { providerServiceId: "7054", servicePhrase: "tiktok followers", categoryPhrase: "tiktok followers" },
+    "tiktok-views": { providerServiceId: "5661", servicePhrase: "tiktok video views", categoryPhrase: "tiktok video views" },
+    "tiktok-shares": { providerServiceId: "7580", servicePhrase: "tiktok video shares", categoryPhrase: "tiktok video services" },
+    "youtube-subscribers": { providerServiceId: "7458", servicePhrase: "youtube subscribers", categoryPhrase: "youtube subscribers" },
+    "youtube-likes": { providerServiceId: "4210", servicePhrase: "youtube likes", categoryPhrase: "youtube likes" },
+    "facebook-page-followers": { providerServiceId: "7229", servicePhrase: "facebook followers", categoryPhrase: "facebook followers" },
+    "facebook-post-likes": { providerServiceId: "7099", servicePhrase: "facebook post likes", categoryPhrase: "facebook post likes" },
+    "facebook-video-views": { providerServiceId: "7603", servicePhrase: "facebook views", categoryPhrase: "facebook views" },
+  };
+  const expected = approvedOperations[serviceSlug];
+  if (!expected || providerServiceId !== expected.providerServiceId) return false;
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return normalize(name).includes(expected.servicePhrase) && normalize(category).startsWith(expected.categoryPhrase);
 }

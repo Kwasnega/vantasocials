@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 const read = (file) => fs.readFileSync(file, "utf8");
 const login = read("app/login/page.tsx") + read("components/auth/AuthForm.tsx");
+const loginForm = read("components/auth/AuthForm.tsx");
 const signup = read("app/signup/page.tsx") + read("components/auth/AuthForm.tsx");
 const profileMigration = read("supabase/migrations/20260928000002_auth_profiles.sql");
 const admin = read("lib/admin/auth.ts");
@@ -10,6 +11,10 @@ const accountOrders = read("app/account/orders/page.tsx") + read("app/account/or
 const adminLayout = read("app/admin/layout.tsx");
 const assertions = [
   [login.includes("signInWithPassword"), "login uses Supabase password auth"],
+  [loginForm.includes("onAuthStateChange((") && loginForm.includes('event !== "SIGNED_IN"'), "successful auth state immediately redirects"],
+  [loginForm.includes("new Promise<{ timedOut: true }>") && loginForm.includes("15000"), "login has a bounded sign-in wait"],
+  [loginForm.includes("Sign-in is taking longer than expected. Please try again."), "stalled sign-in shows a retryable error"],
+  [loginForm.includes("window.location.replace(destination)"), "successful login redirects without waiting on a second auth request"],
   [signup.includes("signUp"), "signup uses Supabase auth"],
   [signup.includes("password !== confirm"), "signup validates password confirmation"],
   [login.includes("startsWith(\"/\")") && login.includes("startsWith(\"//\")"), "login constrains next redirects"],

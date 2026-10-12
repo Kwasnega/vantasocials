@@ -10,11 +10,11 @@ export async function GET(request: Request) {
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   try { const rejected = await enforceAdminRateLimit(request, user.id, "pricing-read", 30); if (rejected) return rejected; } catch { return limiterUnavailable(); }
   const db = createSupabaseAdminClient();
-  const [{ data: services, error }, { data: setting }] = await Promise.all([
+  const [{ data: services, error: servicesError }, { data: setting, error: settingError }] = await Promise.all([
     db.from("services").select("id,slug,name,selling_rate,currency,provider,provider_service_id,provider_rate,provider_rate_unit,provider_currency,provider_rate_last_synced,min_quantity,max_quantity,active").order("slug"),
     db.from("pricing_settings").select("fx_rate,fx_source,updated_at").eq("key", "USD_GHS").maybeSingle(),
   ]);
-  if (error) return NextResponse.json({ error: "Unable to load pricing." }, { status: 500 });
+  if (servicesError || settingError) return NextResponse.json({ error: "Unable to load pricing data." }, { status: 500 });
   const fxRate = setting?.fx_rate ? String(setting.fx_rate) : null;
   const fxSource = setting?.fx_source ? String(setting.fx_source) : null;
   const fxUpdatedAt = setting?.updated_at ? String(setting.updated_at) : null;

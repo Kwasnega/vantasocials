@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { calculatePricing, toPricingString } from "../lib/pricing/engine.ts";
+import { calculatePricing, formatGhsAmount, normalizePricingValue, normalizeProviderPricingValue, toPricingString } from "../lib/pricing/engine.ts";
 
 console.log("Starting unified pricing test suite...");
 
@@ -70,7 +70,7 @@ assert.equal(perThousand.providerCostUsd, "1");
 assert.equal(perThousand.providerCostGhs, "12");
 assert.equal(perThousand.grossProfitGhs, "-2");
 assert.equal(perThousand.grossMarginPercent, "-20");
-assert.equal(perThousand.markupPercent, "-16.66");
+assert.equal(perThousand.markupPercent, "-16.67");
 
 // 2. PER_UNIT and PER_ORDER model costs
 assert.equal(
@@ -138,7 +138,7 @@ assert.equal(likes.grossProfitGhsPer1000, "0.4924");
 assert.equal(likes.providerCostGhs, "5.076");
 assert.equal(likes.grossProfitGhs, "4.924");
 assert.equal(likes.grossMarginPercent, "49.24");
-assert.equal(likes.markupPercent, "97");
+assert.equal(likes.markupPercent, "97.01");
 assert.equal(likes.projection10k?.revenueGhs, "10");
 assert.equal(likes.projection10k?.providerCostGhs, "5.076");
 assert.equal(likes.projection10k?.profitGhs, "4.924");
@@ -203,10 +203,80 @@ assert.equal(perOrder.providerCostGhsPerBasis, "9.6");
 assert.equal(perOrder.revenueGhs, "10");
 assert.equal(perOrder.grossProfitGhs, "0.4");
 assert.equal(perOrder.grossMarginPercent, "4");
-assert.equal(perOrder.markupPercent, "4.16");
+assert.equal(perOrder.markupPercent, "4.17");
 assert.equal(perOrder.projection10k?.revenueGhs, "50");
 assert.equal(perOrder.projection10k?.providerCostGhs, "9.6");
 assert.equal(perOrder.projection10k?.profitGhs, "40.4");
 assert.equal(perOrder.grossProfitGhsPer1000, null);
+
+// Required comparison: same customer rate, different provider billing units.
+const providerExample = (providerRateUnit, quantity) =>
+  calculatePricing({
+    providerRate: "2.50",
+    providerRateUnit,
+    providerCurrency: "USD",
+    fxRate: "12.00",
+    sellingPricePerUnit: "0.005",
+    sellingCurrency: "GHS",
+    quantity,
+  });
+const per1000At1000 = providerExample("PER_1000", 1000);
+const per1000At2000 = providerExample("PER_1000", 2000);
+assert.equal(per1000At1000.revenueGhs, "5");
+assert.equal(per1000At1000.providerCostGhs, "30");
+assert.equal(per1000At1000.grossProfitGhs, "-25");
+assert.equal(per1000At1000.grossMarginPercent, "-500");
+assert.equal(per1000At1000.markupPercent, "-83.33");
+assert.equal(per1000At2000.revenueGhs, "10");
+assert.equal(per1000At2000.providerCostGhs, "60");
+assert.equal(per1000At2000.grossProfitGhs, "-50");
+assert.equal(per1000At2000.grossMarginPercent, "-500");
+assert.equal(per1000At2000.markupPercent, "-83.33");
+
+const perOrderAt1000 = providerExample("PER_ORDER", 1000);
+const perOrderAt2000 = providerExample("PER_ORDER", 2000);
+assert.equal(perOrderAt1000.revenueGhs, "5");
+assert.equal(perOrderAt1000.providerCostGhs, "30");
+assert.equal(perOrderAt1000.grossProfitGhs, "-25");
+assert.equal(perOrderAt1000.grossMarginPercent, "-500");
+assert.equal(perOrderAt1000.markupPercent, "-83.33");
+assert.equal(perOrderAt2000.revenueGhs, "10");
+assert.equal(perOrderAt2000.providerCostGhs, "30");
+assert.equal(perOrderAt2000.grossProfitGhs, "-20");
+assert.equal(perOrderAt2000.grossMarginPercent, "-200");
+assert.equal(perOrderAt2000.markupPercent, "-66.67");
+
+const breakEven = calculatePricing({
+  providerRate: "0.5",
+  providerRateUnit: "PER_1000",
+  providerCurrency: "USD",
+  fxRate: "10",
+  sellingPricePerUnit: "0.005",
+  sellingCurrency: "GHS",
+  quantity: 1000,
+});
+assert.equal(breakEven.grossProfitGhs, "0");
+assert.equal(breakEven.profitability, "BREAK_EVEN");
+assert.equal(breakEven.lossOrNoMargin, false);
+
+const tinyRate = calculatePricing({
+  providerRate: "0.0000009",
+  providerRateUnit: "PER_1000",
+  providerCurrency: "USD",
+  fxRate: "12.123456789012",
+  sellingPricePerUnit: "0.005",
+  sellingCurrency: "GHS",
+  quantity: 1000,
+});
+assert.equal(tinyRate.providerCostUsd, "0.0000009");
+assert.equal(tinyRate.providerCostGhs, "0.000010911111");
+assert.equal(tinyRate.grossProfitGhs, "4.999989088889");
+assert.equal(normalizeProviderPricingValue("0.0000009"), "0.0000009");
+assert.equal(normalizePricingValue(12.123456789012), "12.123456789012");
+assert.equal(formatGhsAmount(tinyRate.providerCostGhs), "0.00");
+assert.equal(formatGhsAmount("-25"), "-25.00");
+assert.throws(() => normalizeProviderPricingValue("1.1234567890123"), /precision/);
+assert.throws(() => normalizeProviderPricingValue("1000000000000"), /storage range/);
+assert.throws(() => normalizePricingValue(0.12345678901234), /represented exactly/);
 
 console.log("pricing-engine-tests: ALL TESTS PASSED SUCCESSFULLY");

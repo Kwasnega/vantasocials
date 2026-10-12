@@ -34,5 +34,5 @@ export function validateCreateServiceInput(input: CreateServiceInput) {
   if (!Number.isSafeInteger(minQuantity) || minQuantity <= 0 || !Number.isSafeInteger(maxQuantity) || maxQuantity < minQuantity) throw new Error("Quantity bounds are invalid.");
   const sellingRatePerUnit = adminPricePer1000ToUnitRate(sellingPricePer1000, false);
   if (currency !== "GHS") throw new Error("Currency must be GHS.");
-  return { platformId: input.platformId, name, slug, category, description: description || null, serviceType, targetType: input.targetType as ServiceTargetType, minQuantity, maxQuantity, sellingRatePerUnit, currency };
+  return { platformId: input.platformId, name, slug, category, description: description || null, serviceType, targetType: input.targetType as ServiceTargetType, minQuantity, maxQuantity, sellingRatePerUnit, sellingPricePer1000, currency };
 }

@@ -27,7 +27,7 @@ const serviceCreation = loadTypeScript(
 );
 const catalog = loadTypeScript(
   fs.readFileSync("lib/fulfillment/reliablesmm/catalog.ts", "utf8"),
-  { "server-only": {}, "./client": {} },
+  { "server-only": {}, "./client": {}, "../../pricing/engine": engine },
 );
 const catalogServicesSource = fs.readFileSync("lib/catalog/services.ts", "utf8");
 

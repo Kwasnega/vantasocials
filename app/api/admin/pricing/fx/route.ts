@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../lib/security/rate-limit";
+import { normalizeProviderPricingValue } from "../../../../../lib/pricing/engine";
 
 export async function PATCH(request: Request) {
   const { user, admin } = await requireAdmin();
@@ -9,8 +10,12 @@ export async function PATCH(request: Request) {
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   try { const rejected = await enforceAdminRateLimit(request, user.id, "pricing-fx-mutation", [20, 20]); if (rejected) return rejected; } catch { return limiterUnavailable(); }
   const body = await request.json().catch(() => null);
-  const fxRate = typeof body?.fx_rate === "string" ? body.fx_rate.trim() : "";
-  if (!/^\d+(\.\d{1,12})?$/.test(fxRate) || Number(fxRate) <= 0) return NextResponse.json({ error: "fx_rate must be a positive decimal." }, { status: 400 });
+  let fxRate: string;
+  try {
+    fxRate = normalizeProviderPricingValue(typeof body?.fx_rate === "string" ? body.fx_rate : "", false);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "fx_rate must be a positive decimal with at most 12 fractional digits." }, { status: 400 });
+  }
   const db = createSupabaseAdminClient();
   const { data: previous, error: readError } = await db.from("pricing_settings").select("fx_rate").eq("key", "USD_GHS").maybeSingle();
   if (readError) return NextResponse.json({ error: "Unable to load existing FX rate for audit." }, { status: 500 });

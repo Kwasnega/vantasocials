@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getPlatformLogoUrl } from "../../../lib/catalog/logo";
+import { calculatePricing, formatGhsAmount, normalizePricingValue, type RateUnit } from "../../../lib/pricing/engine";
+import { adminPricePer1000ToUnitRate } from "../../../lib/pricing/customer-price";
 
 export type AdminPlatform = {
   id: string;
@@ -17,7 +19,7 @@ export type AdminPlatform = {
 type ProviderRow = {
   provider_service_id: string;
   name: string;
-  provider_rate: string;
+  provider_rate: string | number;
   provider_currency: string;
   rate_unit: string;
   min_quantity: number;
@@ -25,6 +27,7 @@ type ProviderRow = {
   refill_supported: boolean;
   cancel_supported: boolean;
   provider_status: string;
+  last_synced_at?: string | null;
   compatibility_state?: "READY" | "MISSING_METADATA" | "UNSUPPORTED_TARGET";
   compatibility?: { platform: string; targetType: string } | null;
   compatibility_reason?: string | null;
@@ -64,6 +67,10 @@ interface CreateServiceCardProps {
   defaultPlatformId?: string;
   triggerLabel?: string;
   triggerClassName?: string;
+  fxRate?: string | null;
+  fxError?: string | null;
+  fxUpdatedAt?: string | null;
+  fxSource?: string | null;
 }
 
 export function CreateServiceCard({
@@ -71,6 +78,10 @@ export function CreateServiceCard({
   defaultPlatformId,
   triggerLabel = "+ Add New Service",
   triggerClassName = "mapping-confirm create-service-trigger",
+  fxRate = null,
+  fxError = null,
+  fxUpdatedAt = null,
+  fxSource = null,
 }: CreateServiceCardProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -134,6 +145,27 @@ export function CreateServiceCard({
       (r) => r.name.toLowerCase().includes(q) || r.provider_service_id.includes(q)
     );
   }, [catalogRows, catalogQuery, currentPlatform]);
+
+  const creationEconomics = useMemo(() => {
+    const unit = selectedProviderRow?.rate_unit;
+    if (!selectedProviderRow || !fxRate || (unit !== "PER_1000" && unit !== "PER_ORDER") || selectedProviderRow.provider_currency !== "USD") return null;
+    try {
+      const inputs = {
+        providerRate: normalizePricingValue(selectedProviderRow.provider_rate),
+        providerRateUnit: unit as RateUnit,
+        providerCurrency: "USD" as const,
+        fxRate: normalizePricingValue(fxRate, false),
+        sellingPricePerUnit: adminPricePer1000ToUnitRate(sellingRate, false),
+        sellingCurrency: "GHS" as const,
+      };
+      return {
+        per1000: calculatePricing({ ...inputs, quantity: 1000 }),
+        per10000: calculatePricing({ ...inputs, quantity: 10000 }),
+      };
+    } catch {
+      return null;
+    }
+  }, [selectedProviderRow, fxRate, sellingRate]);
 
   function openModal(platformId?: string) {
     setMessage("");
@@ -218,7 +250,12 @@ export function CreateServiceCard({
         serviceType: "standard",
       };
 
-      if (selectedProviderRow) {
+      const providerMappingRequested = Boolean(
+        selectedProviderRow &&
+        (selectedProviderRow.rate_unit === "PER_1000" || selectedProviderRow.rate_unit === "PER_ORDER")
+      );
+      const selectedProviderServiceId = selectedProviderRow?.provider_service_id;
+      if (providerMappingRequested && selectedProviderRow) {
         payload.providerServiceId = selectedProviderRow.provider_service_id;
       }
 
@@ -233,11 +270,12 @@ export function CreateServiceCard({
         throw new Error(body.error || "Failed to create service.");
       }
       const mapped = Boolean(
-        selectedProviderRow &&
+        providerMappingRequested &&
+        selectedProviderServiceId &&
         body.mapping?.provider === "reliablesmm" &&
-        String(body.mapping?.provider_service_id ?? "") === selectedProviderRow.provider_service_id &&
+        String(body.mapping?.provider_service_id ?? "") === selectedProviderServiceId &&
         body.service?.provider === "reliablesmm" &&
-        String(body.service?.provider_service_id ?? "") === selectedProviderRow.provider_service_id
+        String(body.service?.provider_service_id ?? "") === selectedProviderServiceId
       );
       if (selectedProviderRow && !mapped) {
         throw new Error("Service creation returned without a verified provider mapping. Check the service before retrying.");
@@ -358,6 +396,7 @@ export function CreateServiceCard({
                   <strong>{createdInfo.name}</strong> has been created and added to the{" "}
                   <strong>{createdInfo.platformName}</strong> card.
                   {createdInfo.mapped ? " The provider mapping was saved and verified; the service remains inactive." : ""}
+                  {!createdInfo.mapped ? " The service was created without a provider mapping and can be mapped later." : ""}
                 </p>
                 <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
                   <button
@@ -721,6 +760,7 @@ export function CreateServiceCard({
                                 border: "1px solid #3b2354",
                                 color: "#fff",
                                 cursor: "pointer",
+                                opacity: 1,
                                 textAlign: "left",
                                 gap: "10px",
                               }}
@@ -729,7 +769,7 @@ export function CreateServiceCard({
                                 <strong style={{ color: "#d883ff" }}>#{row.provider_service_id}</strong> {row.name}
                               </span>
                               <small style={{ color: "#78dfb4", whiteSpace: "nowrap", fontWeight: 700 }}>
-                                ${row.provider_rate} / 1k
+                                {formatProviderRate(row.provider_rate, row.provider_currency, row.rate_unit)}
                               </small>
                             </button>
                           ))
@@ -738,6 +778,51 @@ export function CreateServiceCard({
                     </div>
                   )}
                 </div>
+
+                {selectedProviderRow && (
+                  <section className="create-service-economics" aria-label="Estimated service economics">
+                    <header>
+                      <div>
+                        <p className="dashboard-kicker">ESTIMATED ECONOMICS</p>
+                        <strong>{selectedProviderRow.name} · ReliableSMM #{selectedProviderRow.provider_service_id}</strong>
+                        <span>Provider rate: {formatProviderRate(selectedProviderRow.provider_rate, selectedProviderRow.provider_currency, selectedProviderRow.rate_unit)}</span>
+                      </div>
+                      <span className={`create-eligibility ${selectedProviderRow.compatibility_state === "READY" ? "is-ready" : "is-review"}`}>
+                        {selectedProviderRow.compatibility_state === "READY" ? "Metadata compatible · server validates full eligibility" : "Eligibility requires review"}
+                      </span>
+                    </header>
+                    {selectedProviderRow.rate_unit !== "PER_1000" && selectedProviderRow.rate_unit !== "PER_ORDER" ? (
+                      <p className="economics-unavailable">Economics unavailable: provider billing unit is unsupported. This provider cannot be mapped.</p>
+                    ) : !fxRate ? (
+                      <p className="economics-unavailable">Economics unavailable: {fxError ?? "USD → GHS FX is not configured."} A service can still be created without mapping under the existing workflow.</p>
+                    ) : !creationEconomics ? (
+                      <p className="economics-unavailable">Enter a valid customer price with at most three decimal places per 1,000 units to calculate estimates.</p>
+                    ) : (
+                      <>
+                        <p className="create-fx-freshness">
+                          FX: ₵{fxRate} per USD · {fxSource ?? "source unknown"} · {fxUpdatedAt ? `updated ${new Date(fxUpdatedAt).toLocaleString()}` : "freshness unknown"} · Provider catalog: {selectedProviderRow.last_synced_at ? new Date(selectedProviderRow.last_synced_at).toLocaleString() : "timestamp unknown"}
+                        </p>
+                        {([
+                          ["1,000 units", creationEconomics.per1000],
+                          ["10,000 units", creationEconomics.per10000],
+                        ] as const).map(([quantityLabel, result]) => (
+                          <div className="create-economics-line" key={quantityLabel}>
+                            <strong>{quantityLabel}</strong>
+                            <span>
+                              Revenue ₵{formatGhsAmount(result.revenueGhs)} · Provider cost ₵{formatGhsAmount(result.providerCostGhs)}
+                              {selectedProviderRow.rate_unit === "PER_ORDER" ? " / order (charged once)" : ""}
+                              {" · "}Profit <b className={`profit-${result.profitability.toLowerCase()}`}>₵{formatGhsAmount(result.grossProfitGhs)}</b>
+                              {" · "}Margin {result.grossMarginPercent ?? "Unavailable"}%
+                            </span>
+                          </div>
+                        ))}
+                        <small>
+                          Markup at 1,000 units: {creationEconomics.per1000.markupPercent == null ? "Unavailable (zero provider cost)" : `${creationEconomics.per1000.markupPercent}%`}. Estimates only; provider cost and FX may change.
+                        </small>
+                      </>
+                    )}
+                  </section>
+                )}
 
                 {/* Form Fields Grid */}
                 <div className="create-service-field-stack">
@@ -843,4 +928,10 @@ export function CreateServiceCard({
       )}
     </>
   );
+}
+
+function formatProviderRate(rate: string | number, currency: string, unit: string): string {
+  if (unit === "PER_1000") return `${currency === "USD" ? "$" : `${currency} `}${rate} / 1,000`;
+  if (unit === "PER_ORDER") return `${currency === "USD" ? "$" : `${currency} `}${rate} / order`;
+  return `Rate ${rate} ${currency} · unsupported unit (${unit || "unknown"})`;
 }

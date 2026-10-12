@@ -33,7 +33,11 @@ const eligibility = loadTypeScript("lib/targets/eligibility.ts", {
   },
 });
 const consistency = loadTypeScript("lib/fulfillment/provider-mapping-consistency.ts");
-const pricing = loadTypeScript("lib/fulfillment/reliablesmm/pricing.ts", { "server-only": {} });
+const pricingEngine = loadTypeScript("lib/pricing/engine.ts");
+const pricing = loadTypeScript("lib/fulfillment/reliablesmm/pricing.ts", {
+  "server-only": {},
+  "../../pricing/engine": pricingEngine,
+});
 
 function metadata(overrides = {}) {
   return {
@@ -141,8 +145,10 @@ assert.throws(
 
 assert.equal(pricing.reliableSMMCost("2.50", 2000, "PER_1000"), "5");
 assert.equal(pricing.reliableSMMCost("2.50", 2000, "PER_ORDER"), "2.5");
+assert.equal(pricing.reliableSMMCost("0.0000009", 1000, "PER_1000"), "0.000001");
 assert.throws(() => pricing.reliableSMMCost("2.50", 2000, "UNKNOWN"), /Unsupported ReliableSMM pricing unit/);
 assert.throws(() => pricing.reliableSMMCost("2.50", 0, "PER_ORDER"), /Invalid ReliableSMM pricing input/);
+assert.throws(() => pricing.reliableSMMCost("0.0000009", 100, "PER_1000"), /below the six-decimal precision/);
 
 const worker = fs.readFileSync("lib/fulfillment/worker.ts", "utf8");
 const attempt = fs.readFileSync("lib/fulfillment/reliablesmm/attempt.ts", "utf8");

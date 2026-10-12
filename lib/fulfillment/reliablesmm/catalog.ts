@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { ReliableSMMService } from "./client";
+import { normalizeProviderPricingValue } from "../../pricing/engine";
 
 export type NormalizedReliableSMMService = {
   provider: "reliablesmm"; providerServiceId: string; name: string; type: string; category: string;
@@ -10,7 +11,13 @@ export type NormalizedReliableSMMService = {
 
 function integer(value: unknown) { const parsed = Number(value); if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error("Invalid ReliableSMM quantity."); return parsed; }
 function flag(value: unknown) { return value === true || value === 1 || value === "1" || value === "true"; }
-function rate(value: unknown) { const result = String(value); if (!/^\d+(\.\d+)?$/.test(result)) throw new Error("Invalid ReliableSMM rate."); return result; }
+function rate(value: unknown) {
+  try {
+    return normalizeProviderPricingValue(String(value));
+  } catch {
+    throw new Error("ReliableSMM rate is invalid or exceeds supported numeric(24,12) precision.");
+  }
+}
 
 export function normalizeReliableSMMService(service: ReliableSMMService): NormalizedReliableSMMService {
   const id = String(service.service); if (!/^\d+$/.test(id) || !service.name) throw new Error("Invalid ReliableSMM service.");

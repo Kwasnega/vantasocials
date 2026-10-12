@@ -1704,6 +1704,57 @@ button, a, .button, .how-cta, .step-card, .catalog-card, .dashboard-card {
   animation: customer-loading-shimmer 1.8s ease-in-out infinite;
 }
 
+.admin-economics-list { display:grid; gap:13px; }
+.admin-economics-card { min-width:0; padding:21px; border:1px solid #39264b; border-radius:18px; color:#f7f4fa; background:linear-gradient(145deg,#1b0d28,#12091d); box-shadow:0 14px 35px rgba(0,0,0,.12); }
+.admin-economics-card-header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.admin-economics-card-header h3 { margin:0 0 4px; color:#fff; font-size:19px; letter-spacing:-.03em; }
+.admin-economics-card-header > div:first-child > span,.admin-economics-platform { color:#93839e; font-size:11px; }
+.admin-economics-platform { margin:0 0 5px; text-transform:uppercase; letter-spacing:.08em; }
+.admin-economics-badges { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+.admin-economics-badges span,.create-eligibility { padding:6px 9px; border:1px solid #453258; border-radius:999px; color:#cbb7d6; background:#21152d; font-size:10px; font-weight:800; white-space:nowrap; }
+.admin-economics-badges .is-active,.admin-economics-badges .is-mapped,.create-eligibility.is-ready { border-color:#344c42; color:#9ce5c2; background:#17251e; }
+.admin-economics-badges .is-muted,.create-eligibility.is-review { color:#d3b783; background:#2a2119; border-color:#54432a; }
+.admin-economics-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:17px; }
+.admin-economics-grid > div,.admin-economics-summary > div:not(.economics-unavailable) { min-width:0; display:grid; align-content:start; gap:5px; padding:13px; border:1px solid #30203e; border-radius:12px; background:rgba(12,7,17,.42); }
+.admin-economics-grid small,.admin-economics-summary small { color:#a99bb2; font-size:10px; font-weight:800; letter-spacing:.035em; text-transform:uppercase; }
+.admin-economics-grid strong,.admin-economics-summary strong { color:#fff; font-size:15px; overflow-wrap:anywhere; }
+.admin-economics-grid span,.admin-economics-summary span { color:#9889a2; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+.admin-economics-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:10px; }
+.profit-profit { color:#78dfb4 !important; }.profit-loss { color:#ff9dab !important; }.profit-break_even { color:#f0c977 !important; }
+.economics-unavailable { display:grid; gap:5px; padding:13px; border:1px solid #70404b; border-radius:12px; color:#ffb0bc; background:#24131f; }
+.admin-economics-footer { display:grid; gap:4px; margin-top:12px; color:#897b93; font-size:10px; line-height:1.5; }
+.admin-economics-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; padding-top:13px; border-top:1px solid #30203e; }
+.admin-economics-actions > a,.service-card-action { min-height:36px; display:inline-flex; align-items:center; justify-content:center; padding:8px 11px; border:1px solid #493257; border-radius:9px; color:#e0a8ff; background:#21152d; font:inherit; font-size:11px; font-weight:800; cursor:pointer; }
+.admin-economics-actions > a:hover,.service-card-action:hover { border-color:#d883ff; color:#fff; }
+.create-service-economics { display:grid; gap:10px; margin:0 30px 17px; padding:16px; border:1px solid #3c2b4c; border-radius:14px; background:linear-gradient(145deg,#1b1025,#130b1b); }
+.create-service-economics header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.create-service-economics header > div { display:grid; gap:5px; min-width:0; }
+.create-service-economics header strong { color:#fff; font-size:13px; }
+.create-service-economics header > div > span,.create-service-economics > small,.create-fx-freshness { color:#a99bb2; font-size:11px; line-height:1.5; }
+.create-economics-line { display:grid; grid-template-columns:110px minmax(0,1fr); gap:10px; padding:9px 0; border-top:1px solid #30203e; }
+.create-economics-line > strong { color:#e0a8ff; font-size:11px; }
+.create-economics-line > span { color:#c8b9d0; font-size:11px; line-height:1.5; }
+.create-fx-freshness { margin:0; }
+.price-edit-modal .pricing-popup-body { display:grid; gap:14px; }
+.price-edit-economics { display:grid; gap:9px; padding:14px; border:1px solid #382748; border-radius:12px; background:#180d25; }
+.price-edit-economics > p { margin:0; color:#a99bb2; font-size:11px; line-height:1.5; }
+.price-edit-economics > div { display:grid; gap:4px; }
+.price-edit-economics > div > strong { color:#e0a8ff; font-size:12px; }
+.price-edit-economics > div > span { color:#c8b9d0; font-size:11px; line-height:1.5; }
+@media (max-width:900px) { .admin-economics-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:620px) {
+  .admin-economics-card { padding:15px; }
+  .admin-economics-card-header { flex-direction:column; }
+  .admin-economics-badges { justify-content:flex-start; }
+  .admin-economics-grid { grid-template-columns:1fr 1fr; gap:7px; }
+  .admin-economics-grid > div,.admin-economics-summary > div:not(.economics-unavailable) { padding:10px; }
+  .admin-economics-summary { grid-template-columns:1fr; }
+  .admin-economics-actions > a,.admin-economics-actions > button { flex:1 1 42%; }
+  .create-service-economics { margin:0 14px 15px; padding:13px; }
+  .create-service-economics header { flex-direction:column; }
+  .create-economics-line { grid-template-columns:1fr; gap:4px; }
+}
+
 .customer-loading-eyebrow {
   width: 110px;
   height: 10px;

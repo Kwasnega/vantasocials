@@ -127,7 +127,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unable to create service." }, { status: 500 });
   }
 
-  if (!providerServiceId) return NextResponse.json({ service }, { status: 201 });
+  if (!providerServiceId) return NextResponse.json({
+    service,
+    sellingPricePer1000: input.sellingPricePer1000,
+    sellingRateUnit: "GHS_PER_UNIT",
+  }, { status: 201 });
 
   const { data: mapping, error: mappingError } = await db.rpc("apply_provider_mapping", {
     p_service_id: service.id,
@@ -178,5 +182,10 @@ export async function POST(request: Request) {
     }, { status: 500 });
   }
 
-  return NextResponse.json({ service: persisted, mapping: mappingResult }, { status: 201 });
+  return NextResponse.json({
+    service: persisted,
+    mapping: mappingResult,
+    sellingPricePer1000: input.sellingPricePer1000,
+    sellingRateUnit: "GHS_PER_UNIT",
+  }, { status: 201 });
 }

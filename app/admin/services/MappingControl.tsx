@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { calculatePricing, type PricingResult, type RateUnit } from "../../../lib/pricing/engine";
+import { calculatePricing, formatGhsAmount, normalizePricingValue, type PricingResult, type RateUnit } from "../../../lib/pricing/engine";
 import { adminPricePer1000ToUnitRate, unitRateToAdminPricePer1000 } from "../../../lib/pricing/customer-price";
 
 type Row = {
@@ -21,19 +21,34 @@ type Row = {
 
 const basis = (unit: string) =>
   unit === "PER_1000" ? "1,000" : unit === "PER_ORDER" ? "order" : unit === "PER_UNIT" ? "1 unit" : "unsupported basis";
+const validCustomerPrice = (value: string) => {
+  try {
+    adminPricePer1000ToUnitRate(value, false);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const validFxRate = (value: string | null) => {
+  if (value == null) return false;
+  try {
+    normalizePricingValue(value, false);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 export function MappingControl({
   serviceId,
   serviceSlug,
   serviceName,
   current,
-  fxRate: passedFxRate,
 }: {
   serviceId: string;
   serviceSlug: string;
   serviceName: string;
   current: string | null;
-  fxRate?: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -44,9 +59,12 @@ export function MappingControl({
   const [showBlocked, setShowBlocked] = useState(false);
   const [candidateLoadError, setCandidateLoadError] = useState(false);
   const [price, setPrice] = useState("");
+  const [priceLoadState, setPriceLoadState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [priceLoadAttempt, setPriceLoadAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [fx, setFx] = useState<string | null>(passedFxRate ?? null);
+  const [fx, setFx] = useState<string | null>(null);
+  const [fxError, setFxError] = useState<string | null>(null);
   const [fxSource, setFxSource] = useState<string | null>(null);
   const [fxUpdatedAt, setFxUpdatedAt] = useState<string | null>(null);
 
@@ -90,6 +108,12 @@ export function MappingControl({
   useEffect(() => {
     if (!open || step !== 2) return;
     let cancelled = false;
+    setPrice("");
+    setFx(null);
+    setFxError(null);
+    setFxSource(null);
+    setFxUpdatedAt(null);
+    setPriceLoadState("loading");
     fetch(`/api/admin/pricing?service_id=${encodeURIComponent(serviceId)}`)
       .then(async (r) => {
         const body = await r.json();
@@ -98,43 +122,48 @@ export function MappingControl({
       })
       .then((b) => {
         if (!cancelled) {
-          setFx(b.fxRate ?? passedFxRate ?? null);
-          if (b.fxSource) setFxSource(b.fxSource);
-          if (b.fxUpdatedAt) setFxUpdatedAt(b.fxUpdatedAt);
+          setFx(b.fxRate ?? null);
+          setFxError(b.fxError ?? null);
+          setFxSource(b.fxSource ?? null);
+          setFxUpdatedAt(b.fxUpdatedAt ?? null);
           const service = (b.services ?? []).find((item: { id: string }) => item.id === serviceId);
+          if (!service) throw new Error("Saved service pricing was not included in the response.");
           setPrice(service?.selling_rate == null ? "" : unitRateToAdminPricePer1000(service.selling_rate));
+          setPriceLoadState("loaded");
         }
       })
       .catch((error) => {
-        if (!cancelled) setMessage(error instanceof Error ? error.message : "Pricing data could not be loaded.");
+        if (!cancelled) {
+          setPriceLoadState("error");
+          setMessage(error instanceof Error ? error.message : "Pricing data could not be loaded.");
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [open, step, serviceId, passedFxRate]);
+  }, [open, step, serviceId, priceLoadAttempt]);
 
   const unit = selected?.rate_unit ?? "UNKNOWN";
-  const supportedUnits: RateUnit[] = ["PER_1000", "PER_UNIT", "PER_ORDER"];
+  const supportedUnits: RateUnit[] = ["PER_1000", "PER_ORDER"];
   const isUnitSupported = supportedUnits.includes(unit as RateUnit);
-  const isFxValid = Boolean(fx && Number.isFinite(Number(fx)) && Number(fx) > 0);
+  const isFxValid = validFxRate(fx);
 
   const economics = useMemo<PricingResult | null>(() => {
     if (
       !selected ||
+      !fx ||
       !isFxValid ||
-      !price ||
-      !Number.isFinite(Number(price)) ||
-      Number(price) < 0 ||
+      !validCustomerPrice(price) ||
       !isUnitSupported
     ) {
       return null;
     }
     try {
       return calculatePricing({
-        providerRate: String(selected.provider_rate),
+        providerRate: normalizePricingValue(selected.provider_rate),
         providerRateUnit: unit as RateUnit,
         providerCurrency: "USD",
-        fxRate: String(fx),
+        fxRate: normalizePricingValue(fx, false),
         sellingPricePerUnit: adminPricePer1000ToUnitRate(price),
         sellingCurrency: "GHS",
         quantity: 10000,
@@ -155,7 +184,7 @@ export function MappingControl({
   }
 
   async function save() {
-    if (!selected || !/^[0-9]+(\.\d+)?$/.test(price) || Number(price) < 0) return;
+    if (priceLoadState !== "loaded" || !selected || !validCustomerPrice(price)) return;
     setBusy(true);
     try {
       const r = await fetch("/api/admin/mappings-and-pricing", {
@@ -359,22 +388,23 @@ export function MappingControl({
                       <strong style={{ color: "#ffb0bc" }}>Pricing basis {unit} requires review</strong>
                     ) : !isFxValid ? (
                       <div>
-                        <strong style={{ color: "#ffcf7a" }}>USD → GHS FX rate unavailable</strong>
+                        <strong style={{ color: "#ffcf7a" }}>{fxError ? "USD → GHS FX rate is invalid" : "USD → GHS FX rate unavailable"}</strong>
                         <p style={{ color: "#ffb0bc", fontSize: "12px", marginTop: "4px" }}>
-                          Cost and profit estimates cannot be trusted until FX is configured in pricing settings. You can still save your GHS price.
+                          {fxError ?? "Cost and profit estimates cannot be trusted until a valid FX rate is configured. You may still save the supported mapping and customer price."}
                         </p>
                       </div>
                     ) : (
                       <>
                         <div className="pricing-cost-value">
-                          ₵{economics?.providerCostGhsPerBasis ?? "—"}{" "}
+                          ₵{economics ? formatGhsAmount(economics.providerCostGhsPerBasis) : "—"}{" "}
                           <small>/ {basis(unit)}</small>
                         </div>
                         <p style={{ fontSize: "12px", color: "#bca8c8", marginTop: "6px" }}>
                           Exchange rate: <strong>₵{fx} per $1 USD</strong>
                           {fxSource ? ` (${fxSource})` : ""}
                           {fxUpdatedAt ? ` · Updated ${new Date(fxUpdatedAt).toLocaleDateString()}` : ""}
-                        </p>
+                              {!fxUpdatedAt ? " · FX freshness unknown" : ""}
+                            </p>
                       </>
                     )}
                   </div>
@@ -397,6 +427,18 @@ export function MappingControl({
                     </small>
                   </label>
 
+                  {priceLoadState === "loading" && (
+                    <p className="pricing-popup-unavailable" role="status">Loading the currently saved customer price…</p>
+                  )}
+                  {priceLoadState === "error" && (
+                    <div className="pricing-popup-unavailable" role="alert">
+                      The saved customer price could not be verified. Saving is disabled.
+                      <button type="button" onClick={() => setPriceLoadAttempt((attempt) => attempt + 1)}>
+                        Retry loading saved price
+                      </button>
+                    </div>
+                  )}
+
                   {/* Real-time Profit & Margin Calculator */}
                   {economics && isUnitSupported && isFxValid && (
                     <div className={`pricing-popup-preview${economics.lossOrNoMargin ? " is-loss" : ""}`}>
@@ -405,14 +447,20 @@ export function MappingControl({
                           <span>
                             {unit === "PER_ORDER" ? "Estimated profit at 10,000 units" : "Profit / 1,000 units"}
                           </span>
-                          <strong style={{ color: economics.lossOrNoMargin ? "#ff9dab" : "#78dfb4" }}>
-                            ₵{unit === "PER_ORDER" ? economics.projection10k?.profitGhs : economics.grossProfitGhsPer1000}
+                          <strong className={`profit-${economics.profitability.toLowerCase()}`}>
+                            ₵{formatGhsAmount(unit === "PER_ORDER" ? economics.projection10k?.profitGhs ?? "0" : economics.grossProfitGhsPer1000 ?? "0")}
                           </strong>
                         </div>
                         <div>
                           <span>Profit Margin</span>
-                          <strong style={{ color: economics.lossOrNoMargin ? "#ff9dab" : "#78dfb4" }}>
+                          <strong className={`profit-${economics.profitability.toLowerCase()}`}>
                             {economics.grossMarginPercent ?? "—"}%
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Profitability</span>
+                          <strong className={`profit-${economics.profitability.toLowerCase()}`}>
+                            {economics.profitability === "BREAK_EVEN" ? "Break-even" : economics.profitability === "LOSS" ? "Loss" : "Profit"}
                           </strong>
                         </div>
                       </div>
@@ -427,7 +475,7 @@ export function MappingControl({
                         <div>
                           <span>Provider Cost in GHS</span>
                           <strong style={{ color: "#d8c8e0", fontSize: "16px" }}>
-                            ₵{economics.providerCostGhsPerBasis} / {basis(unit)}
+                            ₵{formatGhsAmount(economics.providerCostGhsPerBasis)} / {basis(unit)}
                           </strong>
                         </div>
                       </div>
@@ -438,7 +486,7 @@ export function MappingControl({
                             10,000-Unit Projection
                           </span>
                           <p style={{ margin: "4px 0 0", color: "#c2d8cf", fontSize: "12px", lineHeight: "1.4" }}>
-                            Customer revenue: <strong>₵{economics.projection10k.revenueGhs}</strong> · Provider cost: <strong>₵{economics.projection10k.providerCostGhs}</strong> · Estimated profit: <strong>₵{economics.projection10k.profitGhs}</strong>
+                            Customer revenue: <strong>₵{formatGhsAmount(economics.projection10k.revenueGhs)}</strong> · Provider cost: <strong>₵{formatGhsAmount(economics.projection10k.providerCostGhs)}</strong> · Estimated profit: <strong>₵{formatGhsAmount(economics.projection10k.profitGhs)}</strong>
                           </p>
                         </div>
                       )}
@@ -455,7 +503,12 @@ export function MappingControl({
 
                   {!isUnitSupported && (
                     <div className="pricing-popup-unavailable">
-                      ReliableSMM returned an unsupported pricing basis ({unit}). Automatic economics are disabled, but you can still set your customer price.
+                      ReliableSMM returned an unsupported pricing basis ({unit}). This mapping cannot be saved. Use the price-only action to change customer pricing without changing the provider.
+                    </div>
+                  )}
+                  {isUnitSupported && isFxValid && price && !economics && (
+                    <div className="pricing-popup-unavailable" role="status">
+                      Economics unavailable: the entered customer price, provider rate, or FX value is invalid or exceeds supported precision.
                     </div>
                   )}
                 </div>
@@ -469,8 +522,9 @@ export function MappingControl({
                     className="mapping-confirm"
                     disabled={
                       !selected ||
-                      !/^[0-9]+(\.\d+)?$/.test(price) ||
-                      Number(price) < 0 ||
+                      !isUnitSupported ||
+                      priceLoadState !== "loaded" ||
+                      !validCustomerPrice(price) ||
                       busy
                     }
                     onClick={() => void save()}

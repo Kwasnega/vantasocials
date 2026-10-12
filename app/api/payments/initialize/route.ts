@@ -30,7 +30,7 @@ export async function POST(request: Request) {
         const verified = await verifyPaystack(pendingPayment.reference);
         const providerStatus = verified.data?.status;
         if (providerStatus === "success") {
-          await verifyAndSettlePaystack(pendingPayment.reference, user.id);
+          await verifyAndSettlePaystack(pendingPayment.reference, user.id, verified);
           return NextResponse.json({ error: "Payment has already completed." }, { status: 409 });
         }
         if (!["failed", "abandoned", "reversed"].includes(String(providerStatus))) {

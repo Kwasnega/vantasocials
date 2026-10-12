@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { requireAdmin } from "../../../lib/admin/auth";
+import { createSupabaseAdminClient } from "../../../lib/supabase/server";
 
 export default async function AdminCustomersPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }) {
   const { admin } = await requireAdmin();
   if (!admin) return null;
-  const db = (await import("../../../lib/supabase/server")).createSupabaseAdminClient();
+  const db = createSupabaseAdminClient();
   const p = await searchParams;
   const page = Math.max(1, Number.parseInt(p.page ?? "1", 10) || 1);
   const limit = 25;
@@ -37,7 +39,7 @@ export default async function AdminCustomersPage({ searchParams }: { searchParam
       <form className="customer-search"><label htmlFor="customer-search">Find a customer</label><div><span aria-hidden="true">⌕</span><input id="customer-search" name="q" defaultValue={p.q} placeholder="Search by email address"/><button type="submit">Search <b>↗</b></button></div></form>
       <div className="dashboard-table-wrap"><table className="dashboard-table customers-table"><thead><tr><th>Customer</th><th>Wallet balance</th><th>Joined</th><th>Access</th></tr></thead><tbody>{(customers ?? []).map((customer) => <tr key={customer.id}><td><div className="customer-identity"><span className="customer-avatar">{(customer.email ?? "?").slice(0, 1).toUpperCase()}</span><span><strong>{customer.email}</strong><small>{customer.id.slice(0, 8)}…</small></span></div></td><td><strong>{(((wallets.find((w) => w.user_id === customer.id)?.balance_minor ?? 0) as number) / 100).toFixed(2)} <em>GHS</em></strong></td><td>{new Date(customer.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</td><td><span className={`customer-access ${customer.is_admin ? "is-admin" : ""}`}><i />{customer.is_admin ? "Admin" : "Customer"}</span></td></tr>)}</tbody></table></div>
       {(customers ?? []).length === 0 && <div className="customer-empty"><span>⌁</span><h3>No customers found</h3><p>Try a different email address or clear the search.</p></div>}
-      <div className="customers-pagination"><span>Page {page} of {Math.max(1, Math.ceil(total / limit))}</span>{page > 1 || page < Math.max(1, Math.ceil(total / limit)) ? <div>{page > 1 && <a href={`/admin/customers?q=${encodeURIComponent(p.q ?? "")}&page=${page - 1}`}>← Previous</a>}{page < Math.max(1, Math.ceil(total / limit)) && <a href={`/admin/customers?q=${encodeURIComponent(p.q ?? "")}&page=${page + 1}`}>Next →</a>}</div> : <span>Up to date</span>}</div>
+      <div className="customers-pagination"><span>Page {page} of {Math.max(1, Math.ceil(total / limit))}</span>{page > 1 || page < Math.max(1, Math.ceil(total / limit)) ? <div>{page > 1 && <Link href={`/admin/customers?q=${encodeURIComponent(p.q ?? "")}&page=${page - 1}`}>← Previous</Link>}{page < Math.max(1, Math.ceil(total / limit)) && <Link href={`/admin/customers?q=${encodeURIComponent(p.q ?? "")}&page=${page + 1}`}>Next →</Link>}</div> : <span>Up to date</span>}</div>
     </section>
   </div>
 }

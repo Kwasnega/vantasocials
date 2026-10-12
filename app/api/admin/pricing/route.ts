@@ -12,9 +12,19 @@ export async function GET(request: Request) {
   const db = createSupabaseAdminClient();
   const [{ data: services, error }, { data: setting }] = await Promise.all([
     db.from("services").select("id,slug,name,selling_rate,currency,provider,provider_service_id,provider_rate,provider_rate_unit,provider_currency,provider_rate_last_synced,min_quantity,max_quantity,active").order("slug"),
-    db.from("pricing_settings").select("fx_rate").eq("key", "USD_GHS").maybeSingle(),
+    db.from("pricing_settings").select("fx_rate,fx_source,updated_at").eq("key", "USD_GHS").maybeSingle(),
   ]);
   if (error) return NextResponse.json({ error: "Unable to load pricing." }, { status: 500 });
   const fxRate = setting?.fx_rate ? String(setting.fx_rate) : null;
-  return NextResponse.json({ fxRate, services: (services ?? []).map((service) => ({ ...service, economics: fxRate ? derivePricing(service, fxRate) : null })) });
+  const fxSource = setting?.fx_source ? String(setting.fx_source) : null;
+  const fxUpdatedAt = setting?.updated_at ? String(setting.updated_at) : null;
+  return NextResponse.json({
+    fxRate,
+    fxSource,
+    fxUpdatedAt,
+    services: (services ?? []).map((service) => ({
+      ...service,
+      economics: fxRate ? derivePricing(service, fxRate) : null,
+    })),
+  });
 }

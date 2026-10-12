@@ -1,11 +1,15 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../lib/supabase/server";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../lib/security/rate-limit";
-import { validateDynamicOrderInput } from "../../../lib/orders/dynamic-input-validation";
+import { validateDynamicFieldValues, validateDynamicOrderInput } from "../../../lib/orders/dynamic-input-validation";
+import type { CustomerInputField } from "../../../lib/customer/service-contract";
 import { normalizeTarget, getTargetContract } from "../../../lib/targets/contracts";
 import { effectiveQuantityRange, quantityInRange } from "../../../lib/targets/quantity";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const IDEMPOTENCY_CONSTRAINT = "orders_user_id_idempotency_key_key";
+const IDEMPOTENCY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function decimalToScaled(value: string, scale = 6) {
   const normalized = value.trim();
@@ -20,6 +24,85 @@ function formatMoney(value: bigint) {
   return `${whole}.${cents}`;
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isPlainObject(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function orderIntentFingerprint(intent: Record<string, unknown>) {
+  return createHash("sha256").update(stableJson(intent)).digest("hex");
+}
+
+function isIdempotencyConflict(error: { code?: string; message?: string } | null | undefined) {
+  return error?.code === "23505" && error.message?.includes(IDEMPOTENCY_CONSTRAINT) === true;
+}
+
+function responseOrder(order: Record<string, unknown>) {
+  const {
+    idempotency_key: _key,
+    idempotency_fingerprint: _fingerprint,
+    idempotency_service_slug: _serviceSlug,
+    input_schema_snapshot: _schemaSnapshot,
+    input_values: _inputValues,
+    ...result
+  } = order;
+  return result;
+}
+
+function replayFingerprint(order: Record<string, unknown>, input: Record<string, unknown>): string | null {
+  if (
+    typeof input.service_id !== "string"
+    || input.service_id.trim().toLowerCase() !== String(order.service_id).toLowerCase()
+    || Number(input.quantity) !== Number(order.quantity)
+  ) return null;
+
+  if (Array.isArray(order.input_schema_snapshot) && order.input_schema_snapshot.length > 0) {
+    const submitted = isPlainObject(input.input_values) ? input.input_values : isPlainObject(input.values) ? input.values : null;
+    if (!submitted) return null;
+    try {
+      const validation = validateDynamicFieldValues(order.input_schema_snapshot as CustomerInputField[], submitted);
+      return orderIntentFingerprint({
+        service_id: order.service_id,
+        quantity: Number(order.quantity),
+        input_values: validation.validatedValues,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof input.target_value !== "string" || typeof order.idempotency_service_slug !== "string") return null;
+  const targetValue = input.target_value.trim();
+  const contract = getTargetContract(order.idempotency_service_slug);
+  const normalized = contract ? normalizeTarget(order.idempotency_service_slug, targetValue) : { valid: true as const, target: targetValue };
+  if (!normalized.valid) return null;
+  return orderIntentFingerprint({
+    service_id: order.service_id,
+    quantity: Number(order.quantity),
+    target_value: normalized.target,
+  });
+}
+
+async function findReplay(admin: ReturnType<typeof createSupabaseAdminClient>, userId: string, key: string, input: Record<string, unknown>) {
+  const { data: existing, error } = await admin
+    .from("orders")
+    .select("id,public_order_id,status,payment_status,fulfillment_status,service_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,created_at,idempotency_key,idempotency_fingerprint,idempotency_service_slug,input_schema_snapshot,input_values")
+    .eq("user_id", userId)
+    .eq("idempotency_key", key)
+    .maybeSingle();
+  if (error) throw error;
+  if (!existing) return null;
+
+  const fingerprint = replayFingerprint(existing, input);
+  if (!fingerprint || fingerprint !== existing.idempotency_fingerprint) {
+    return NextResponse.json({ error: "This idempotency key was already used for a different order request." }, { status: 409 });
+  }
+  return NextResponse.json(responseOrder(existing));
+}
+
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
@@ -30,6 +113,10 @@ export async function POST(request: Request) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 }); }
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid order request." }, { status: 400 });
   const input = body as Record<string, unknown>;
+  const idempotencyKey = request.headers.get("idempotency-key")?.trim() ?? "";
+  if (!IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
+    return NextResponse.json({ error: "A valid Idempotency-Key UUID v4 header is required." }, { status: 400 });
+  }
   const serviceId = typeof input.service_id === "string" ? input.service_id : "";
   const targetValue = typeof input.target_value === "string" ? input.target_value.trim() : "";
   let normalizedTarget: { valid: true; target: string } | null = null;
@@ -39,6 +126,9 @@ export async function POST(request: Request) {
 
   try {
     const admin = createSupabaseAdminClient();
+    const replay = await findReplay(admin, user.id, idempotencyKey, input);
+    if (replay) return replay;
+
     const { data: service, error: serviceError } = await admin
       .from("services")
       .select("id,slug,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active,provider,provider_service_id")
@@ -95,7 +185,10 @@ export async function POST(request: Request) {
     const unitScaled = decimalToScaled(String(service.selling_rate));
     const subtotalCents = (unitScaled * BigInt(quantity) + 5000n) / 10000n;
     const subtotal = formatMoney(subtotalCents);
-    const { data: order, error: orderError } = await admin.from("orders").insert({
+    const fingerprint = orderIntentFingerprint(hasDynamicFields
+      ? { service_id: service.id, quantity, input_values: dynamicValidation!.validatedValues }
+      : { service_id: service.id, quantity, target_value: normalizedTarget!.target });
+    const orderInsert = {
       user_id: user.id,
       service_id: service.id,
       target_type: service.target_type,
@@ -108,15 +201,27 @@ export async function POST(request: Request) {
       status: "PENDING_PAYMENT",
       payment_status: "UNPAID",
       fulfillment_status: "NOT_STARTED",
+      idempotency_key: idempotencyKey,
+      idempotency_fingerprint: fingerprint,
+      idempotency_service_slug: service.slug,
       ...(hasDynamicFields && dynamicValidation ? {
         input_schema_version: dynamicValidation.schemaVersion,
         input_schema_snapshot: dynamicValidation.schemaSnapshot,
         input_values: dynamicValidation.validatedValues,
       } : {}),
-    }).select("id,public_order_id,status,payment_status,fulfillment_status,service_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,created_at").single();
+    };
+    const { data: order, error: orderError } = await admin.from("orders").insert(orderInsert)
+      .select("id,public_order_id,status,payment_status,fulfillment_status,service_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,created_at,idempotency_key,idempotency_fingerprint,idempotency_service_slug,input_schema_snapshot,input_values")
+      .single();
 
-    if (orderError) throw orderError;
-    return NextResponse.json(order, { status: 201 });
+    if (orderError) {
+      if (isIdempotencyConflict(orderError)) {
+        const replay = await findReplay(admin, user.id, idempotencyKey, input);
+        if (replay) return replay;
+      }
+      throw orderError;
+    }
+    return NextResponse.json(responseOrder(order), { status: 201 });
   } catch (error) {
     console.error("Order creation failed", error);
     if (error instanceof Error && /required|Unknown dynamic field key|unsupported|not available|invalid|must be text|exceed|Field "/i.test(error.message)) {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { ServicesShowcase } from "../components/home/ServicesShowcase";
 
@@ -30,28 +31,28 @@ export default function Home() {
     <main className="hero">
       <div className="grain" aria-hidden="true" />
       <nav className="nav" aria-label="Primary navigation">
-        <a className="brand" href="#top" aria-label="VANTA home"><span className="brand-mark">V</span>VANTA</a>
+        <Link className="brand" href="/" aria-label="VANTA home"><span className="brand-mark">V</span>VANTA</Link>
         <div className="nav-links">
           <div className="nav-dropdown"><a href="#services">Instagram services <span className="chevron">⌄</span></a><div className="dropdown-panel"><a href="#services"><b>◎</b> Buy followers</a><a href="#services"><b>♥</b> Buy likes</a><a href="#services"><b>◉</b> Buy views</a><a href="#services"><b>⟳</b> Auto-likes</a><a href="#services"><b>⟳</b> Auto-views</a></div></div>
           <div className="nav-dropdown"><a href="#services">TikTok services <span className="chevron">⌄</span></a><div className="dropdown-panel"><a href="#services"><b>♪</b> Buy followers</a><a href="#services"><b>♥</b> Buy likes</a><a href="#services"><b>◉</b> Buy views</a><a href="#services"><b>⟳</b> Auto-likes</a><a href="#services"><b>⟳</b> Auto-views</a></div></div>
         </div>
         <div className="nav-actions">
-          <a className="login" href="/login">Log in</a>
-          <a className="signup" href="/signup">Start growing</a>
+          <Link className="login" href="/login">Log in</Link>
+          <Link className="signup" href="/signup">Start growing</Link>
           <button className="menu" onClick={() => setMenuOpen(!menuOpen)} aria-label={menuOpen ? "Close menu" : "Open menu"} aria-expanded={menuOpen}>
             <i /><i />
           </button>
         </div>
       </nav>
 
-      {menuOpen && <div className="site-menu" role="dialog" aria-modal="true" aria-label="Site menu"><button className="menu-close" onClick={() => setMenuOpen(false)} aria-label="Close menu">Close <b aria-hidden="true">×</b></button><div className="menu-services"><div className="menu-service"><h2>◎ Instagram<br />services</h2><a href="#services" onClick={() => setMenuOpen(false)}>◎ &nbsp; Buy followers</a><a href="#services" onClick={() => setMenuOpen(false)}>♥ &nbsp; Buy likes</a><a href="#services" onClick={() => setMenuOpen(false)}>◉ &nbsp; Buy views</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-likes</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-views</a></div><div className="menu-service"><h2>♪ TikTok<br />services</h2><a href="#services" onClick={() => setMenuOpen(false)}>♪ &nbsp; Buy followers</a><a href="#services" onClick={() => setMenuOpen(false)}>♥ &nbsp; Buy likes</a><a href="#services" onClick={() => setMenuOpen(false)}>◉ &nbsp; Buy views</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-likes</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-views</a></div></div><nav className="menu-nav" aria-label="Menu links"><a href="#top" onClick={() => setMenuOpen(false)}>Home</a><a href="#how" onClick={() => setMenuOpen(false)}>How it works</a><a href="#services" onClick={() => setMenuOpen(false)}>Services</a><a href="#guarantees-heading" onClick={() => setMenuOpen(false)}>Guarantees</a><a href="mailto:vantasocials62@gmail.com">Support</a></nav></div>}
+      {menuOpen && <div className="site-menu" role="dialog" aria-modal="true" aria-label="Site menu"><button className="menu-close" onClick={() => setMenuOpen(false)} aria-label="Close menu">Close <b aria-hidden="true">×</b></button><div className="menu-services"><div className="menu-service"><h2>◎ Instagram<br />services</h2><a href="#services" onClick={() => setMenuOpen(false)}>◎ &nbsp; Buy followers</a><a href="#services" onClick={() => setMenuOpen(false)}>♥ &nbsp; Buy likes</a><a href="#services" onClick={() => setMenuOpen(false)}>◉ &nbsp; Buy views</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-likes</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-views</a></div><div className="menu-service"><h2>♪ TikTok<br />services</h2><a href="#services" onClick={() => setMenuOpen(false)}>♪ &nbsp; Buy followers</a><a href="#services" onClick={() => setMenuOpen(false)}>♥ &nbsp; Buy likes</a><a href="#services" onClick={() => setMenuOpen(false)}>◉ &nbsp; Buy views</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-likes</a><a href="#services" onClick={() => setMenuOpen(false)}>⟳ &nbsp; Auto-views</a></div></div><nav className="menu-nav" aria-label="Menu links"><Link href="/" onClick={() => setMenuOpen(false)}>Home</Link><a href="#how" onClick={() => setMenuOpen(false)}>How it works</a><a href="#services" onClick={() => setMenuOpen(false)}>Services</a><a href="#guarantees-heading" onClick={() => setMenuOpen(false)}>Guarantees</a><Link href="/account" onClick={() => setMenuOpen(false)}>Dashboard</Link><a href="mailto:vantasocials62@gmail.com">Support</a></nav></div>}
 
       <section className="hero-copy" id="top">
         <p className="eyebrow">SOCIAL GROWTH, SIMPLIFIED</p>
         <h1><span>Grow your presence.</span><span>Across every platform.</span></h1>
         <p className="intro">Premium social growth, without the guesswork. Choose your platform, select a service, and get moving — fast.</p>
         <div className="hero-buttons">
-          <a className="button button-solid" href="#platforms">Explore platforms <ArrowUpRight /></a>
+          <Link className="button button-solid" href="/account">Explore platforms <ArrowUpRight /></Link>
           <a className="button button-outline" href="#how">How it works <ArrowUpRight /></a>
         </div>
       </section>
@@ -75,7 +76,7 @@ export default function Home() {
         <p className="section-kicker">THE VANTA WAY</p>
         <h2 id="how-heading">How it works<br />in four easy steps</h2>
         <p>Choose a platform and service, set your target and quantity, then complete your order in minutes.</p>
-        <a className="how-cta" href="#platforms">Explore services <ArrowUpRight /></a>
+        <Link className="how-cta" href="/account">Explore services <ArrowUpRight /></Link>
       </div>
       <div className="steps-grid">
         <article className="step-card"><span className="step-tag lime">Step 01</span><h3>Choose your platform</h3><p>Start with Instagram, TikTok, YouTube, Facebook, X, or Telegram.</p></article>
@@ -126,14 +127,14 @@ export default function Home() {
 
       <article className="delivery-card one-time">
         <div><h3>Use one-time boosts for exact targets.</h3><p>Choose this for a post, video, or profile that already exists and needs a focused push right now.</p></div>
-        <div className="delivery-actions"><ul><li>Launches and announcements</li><li>Underperforming posts</li><li>Pinned content</li><li>Trying VANTA for the first time</li></ul><a href="#start">Create an order <ArrowUpRight /></a></div>
+        <div className="delivery-actions"><ul><li>Launches and announcements</li><li>Underperforming posts</li><li>Pinned content</li><li>Trying VANTA for the first time</li></ul><Link href="/account">Create an order <ArrowUpRight /></Link></div>
       </article>
 
       <article className="delivery-card automatic">
         <div className="automatic-intro"><h3>Use automatic delivery when the pattern repeats.</h3><p>Set your amount once. Eligible new uploads can receive the chosen support as they go live.</p><ul><li>New uploads detected automatically</li><li>Choose a delivery amount</li><li>Clear controls before checkout</li></ul></div>
         <div className="auto-options">
-          <div className="auto-platform"><h4>◎ &nbsp; Instagram</h4><p>For public posts and Reels that need a consistent initial push.</p><div><span>Auto-likes</span><b>Set per post</b></div><div><span>Auto-views</span><b>Set per post</b></div><section><a href="#start">Auto-likes <ArrowUpRight /></a><a href="#start">Auto-views <ArrowUpRight /></a></section></div>
-          <div className="auto-platform"><h4>♪ &nbsp; TikTok</h4><p>For new videos you want to support the moment they become available.</p><div><span>Auto-likes</span><b>Set per video</b></div><div><span>Auto-views</span><b>Set per video</b></div><section><a href="#start">Auto-likes <ArrowUpRight /></a><a href="#start">Auto-views <ArrowUpRight /></a></section></div>
+          <div className="auto-platform"><h4>◎ &nbsp; Instagram</h4><p>For public posts and Reels that need a consistent initial push.</p><div><span>Auto-likes</span><b>Set per post</b></div><div><span>Auto-views</span><b>Set per post</b></div><section><Link href="/account">Auto-likes <ArrowUpRight /></Link><Link href="/account">Auto-views <ArrowUpRight /></Link></section></div>
+          <div className="auto-platform"><h4>♪ &nbsp; TikTok</h4><p>For new videos you want to support the moment they become available.</p><div><span>Auto-likes</span><b>Set per video</b></div><div><span>Auto-views</span><b>Set per video</b></div><section><Link href="/account">Auto-likes <ArrowUpRight /></Link><Link href="/account">Auto-views <ArrowUpRight /></Link></section></div>
         </div>
       </article>
     </section>
@@ -177,7 +178,7 @@ export default function Home() {
     <footer className="site-footer">
       <div className="footer-mark" aria-hidden="true">VANTA</div>
       <div className="footer-main">
-        <div className="footer-intro"><a className="footer-brand" href="#top"><span>V</span> VANTA</a><h2>Grow with clarity.<br />Move with purpose.</h2><a className="footer-cta" href="#start">Start growing <ArrowUpRight /></a><p>© {new Date().getFullYear()} VANTA. All rights reserved.<br /><a href="mailto:vantasocials62@gmail.com">vantasocials62@gmail.com</a></p></div>
+        <div className="footer-intro"><Link className="footer-brand" href="/"><span>V</span> VANTA</Link><h2>Grow with clarity.<br />Move with purpose.</h2><Link className="footer-cta" href="/account">Start growing <ArrowUpRight /></Link><p>© {new Date().getFullYear()} VANTA. All rights reserved.<br /><a href="mailto:vantasocials62@gmail.com">vantasocials62@gmail.com</a></p></div>
         <nav className="footer-links" aria-label="Footer navigation">
           <div><h3>Platforms</h3><a href="#services">Instagram</a><a href="#services">TikTok</a><a href="#services">YouTube</a><a href="#services">Facebook</a><a href="#services">X</a><a href="#services">Telegram</a></div>
           <div><h3>Services</h3><a href="#services">Followers</a><a href="#services">Likes</a><a href="#services">Views</a><a href="#services">Comments</a><a href="#services">Engagement</a></div>

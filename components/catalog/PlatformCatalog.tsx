@@ -24,7 +24,19 @@ export default function PlatformCatalog({ platforms, services }: { platforms: Ca
         <span className="catalog-count">{platformServices.length} services <b className="catalog-chevron">⌄</b></span>
       </button>
       <p>{platform.description}</p>
-      <div className="catalog-services">{platformServices.map((service) => <div className="catalog-service" key={service.id}><span><b>{service.name}</b><small>{service.min_quantity.toLocaleString()}–{service.max_quantity.toLocaleString()}</small></span><Link href={`/services/${service.slug}`}>Start order <b>↗</b></Link></div>)}</div>
+      <div className="catalog-services">
+        {platformServices.map((service) => (
+          <div className="catalog-service" key={service.id}>
+            <span>
+              <b>{service.name}</b>
+              <small>
+                {service.currency} {(Number(service.selling_rate) * 1000).toFixed(2)} / 1k · Range: {service.min_quantity.toLocaleString()}–{service.max_quantity.toLocaleString()}
+              </small>
+            </span>
+            <Link href={`/services/${service.slug}`}>Start order <b>↗</b></Link>
+          </div>
+        ))}
+      </div>
     </section>;
   })}</div>;
 }

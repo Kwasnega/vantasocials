@@ -25,14 +25,22 @@ export function getTargetContractForService(input: { slug: string; platformSlug?
 const fail = (reason: string): ContractResult => ({ valid: false, reason });
 function url(value: string) { try { const parsed = new URL(value.trim()); if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null; parsed.hostname = parsed.hostname.toLowerCase(); parsed.hash = ""; if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/$/, ""); return parsed; } catch { return null; } }
 function host(parsed: URL, domains: string[]) { return domains.includes(parsed.hostname); }
-function profile(value: string, domains: string[], canonical: string, pattern: RegExp): ContractResult { const raw = value.trim(); if (!raw) return fail("Target is required."); if (!/^https?:\/\//i.test(raw)) { const username = raw.replace(/^@/, ""); if (!/^[A-Za-z0-9._-]{1,64}$/.test(username)) return fail("Invalid profile username."); return { valid: true, target: `${canonical}/${username}` }; } const parsed = url(raw); if (!parsed || parsed.protocol !== "https:" || !host(parsed, domains) || !pattern.test(parsed.pathname)) return fail("Target must be a valid profile URL."); return { valid: true, target: parsed.toString() }; }
+function profile(value: string, domains: string[], canonical: string, pattern: RegExp): ContractResult {
+  const raw = value.trim();
+  if (!raw) return fail("Target URL is required.");
+  const parsed = url(raw);
+  if (!parsed || parsed.protocol !== "https:" || !host(parsed, domains) || !pattern.test(parsed.pathname)) {
+    return fail(`Target must be a valid https://${domains[0]} profile URL.`);
+  }
+  return { valid: true, target: parsed.toString() };
+}
 function content(value: string, domains: string[], pattern: RegExp, queryRequired = false): ContractResult { const parsed = url(value); if (!parsed || parsed.protocol !== "https:" || !host(parsed, domains) || !pattern.test(parsed.pathname) || (queryRequired && !parsed.searchParams.get("v"))) return fail("Target must be a valid content URL."); return { valid: true, target: parsed.toString() }; }
 
 export function normalizeTarget(slug: string, value: string): ContractResult {
   const contract = getTargetContract(slug); if (!contract) return fail("No target contract is defined for this service.");
   switch (contract) {
     case "INSTAGRAM_PROFILE": return profile(value, ["instagram.com", "www.instagram.com"], "https://www.instagram.com", /^\/[^/]+$/);
-    case "TIKTOK_PROFILE": { const raw = value.trim(); if (!/^https?:\/\//i.test(raw)) { const username = raw.replace(/^@/, ""); return /^[A-Za-z0-9._-]{1,64}$/.test(username) ? { valid: true, target: `https://www.tiktok.com/@${username}` } : fail("Invalid TikTok profile username."); } return profile(raw, ["tiktok.com", "www.tiktok.com"], "https://www.tiktok.com/@", /^\/@[^/]+$/); }
+    case "TIKTOK_PROFILE": return profile(value, ["tiktok.com", "www.tiktok.com"], "https://www.tiktok.com/@", /^\/@[^/]+$/);
     case "YOUTUBE_CHANNEL": { const parsed = url(value); if (!parsed || !host(parsed, ["youtube.com", "www.youtube.com"]) || !/^\/(?:channel\/|c\/|@)[^/]+$/.test(parsed.pathname)) return fail("Target must be a valid YouTube channel URL."); return { valid: true, target: parsed.toString() }; }
     case "FACEBOOK_PAGE": { const parsed = url(value); if (!parsed || !host(parsed, ["facebook.com", "www.facebook.com", "m.facebook.com"]) || !/^\/[^/]+$/.test(parsed.pathname)) return fail("Target must be a valid Facebook page URL."); return { valid: true, target: parsed.toString() }; }
     case "INSTAGRAM_CONTENT": return content(value, ["instagram.com", "www.instagram.com"], /^\/(?:p|reel)\/[^/]+$/);

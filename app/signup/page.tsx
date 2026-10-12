@@ -1,8 +1,15 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { SignupForm } from "../../components/auth/AuthForm";
+import { getCurrentUser } from "../../lib/supabase/server";
 
-export default function SignupPage() {
+export default async function SignupPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const user = await getCurrentUser();
+  const { next } = await searchParams;
+  if (user) {
+    redirect(next && next.startsWith("/") ? next : "/account");
+  }
   return <main className="login-page signup-page">
     <section className="login-atmosphere" aria-hidden="true">
       <Link className="login-brand" href="/">VANTA</Link>

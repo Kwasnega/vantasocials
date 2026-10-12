@@ -42,6 +42,10 @@ assert.match(mappingControl, /selectedIdentity\s*=\s*useRef/);
 assert.match(mappingControl, /selectedIdentity\.current\s*=\s*identity\(row\)/);
 assert.match(mappingControl, /wanted=selectedIdentity\.current/);
 assert.match(mappingControl, /row\.eligibility===\"ELIGIBLE\"/);
+assert.match(mappingControl, /disabled=\{row\.eligibility === "BLOCKED"\}/);
+assert.match(mappingControl, /disabled={!selected \|\| selected\.eligibility === "BLOCKED" \|\| busy}/);
+assert.match(mappingControl, /selected\.eligibility !== "ELIGIBLE"/);
+assert.match(mappingControl, /Requires review — \$\{row\.eligibility_reason\}/);
 assert.equal(assessProviderEligibility({ serviceSlug: "x-reposts", targetContract: null, vantaMin: 1, vantaMax: 100000, provider: { provider: "reliablesmm", provider_service_id: "", name: "", provider_status: "ACTIVE", provider_currency: "USD", rate_unit: "PER_1000", min_quantity: 1, max_quantity: 100000 } }).status, "BLOCKED");
 
 const catalog = Array.from({ length: 2005 }, (_, index) => ({ id: String(index + 1), name: "Unrelated" }));

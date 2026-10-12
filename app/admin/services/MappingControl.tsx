@@ -57,6 +57,7 @@ export function MappingControl({
   const [selected, setSelected] = useState<Row | null>(null);
   const selectedIdentity = useRef<string | null>(null);
   const [showBlocked, setShowBlocked] = useState(false);
+  const [candidateQuery, setCandidateQuery] = useState("");
   const [candidateLoadError, setCandidateLoadError] = useState(false);
   const [price, setPrice] = useState("");
   const [priceLoadState, setPriceLoadState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
@@ -184,7 +185,12 @@ export function MappingControl({
   }
 
   async function save() {
-    if (priceLoadState !== "loaded" || !selected || !validCustomerPrice(price)) return;
+    if (
+      priceLoadState !== "loaded" ||
+      !selected ||
+      selected.eligibility !== "ELIGIBLE" ||
+      !validCustomerPrice(price)
+    ) return;
     setBusy(true);
     try {
       const r = await fetch("/api/admin/mappings-and-pricing", {
@@ -207,7 +213,11 @@ export function MappingControl({
     }
   }
 
-  const visible = rows.filter((row) => showBlocked || row.eligibility !== "BLOCKED");
+  const visible = rows.filter((row) => {
+    if (!showBlocked && row.eligibility === "BLOCKED") return false;
+    const query = candidateQuery.trim().toLowerCase();
+    return !query || `${row.provider_service_id} ${row.name} ${row.description ?? ""}`.toLowerCase().includes(query);
+  });
 
   return (
     <>
@@ -217,6 +227,7 @@ export function MappingControl({
           setOpen(true);
           setStep(1);
           setMessage("");
+          setCandidateQuery("");
         }}
       >
         {current ? "Change mapping" : "Map service"}
@@ -260,6 +271,17 @@ export function MappingControl({
 
             {step === 1 ? (
               <>
+                <label className="mapping-search">
+                  <span aria-hidden="true">⌕</span>
+                  <input
+                    type="search"
+                    value={candidateQuery}
+                    onChange={(event) => setCandidateQuery(event.target.value)}
+                    placeholder="Search provider services by name or ID"
+                    aria-label="Search provider services"
+                    disabled={busy}
+                  />
+                </label>
                 <div className="mapping-results">
                   {busy ? (
                     <p className="mapping-empty">Loading matching services…</p>
@@ -268,9 +290,11 @@ export function MappingControl({
                   ) : visible.length === 0 ? (
                     <div style={{ textAlign: "center", padding: "28px 10px" }}>
                       <p className="mapping-empty" style={{ margin: "0 0 12px" }}>
-                        No compatible provider services found directly.
+                        {candidateQuery.trim()
+                          ? `No provider services match "${candidateQuery.trim()}".`
+                          : "No provider services are available for this VANTA service."}
                       </p>
-                      {rows.some((row) => row.eligibility === "BLOCKED") && (
+                      {!candidateQuery.trim() && rows.some((row) => row.eligibility === "BLOCKED") && (
                         <button
                           type="button"
                           className="mapping-cancel"
@@ -287,7 +311,8 @@ export function MappingControl({
                     visible.map((row) => (
                       <button
                         type="button"
-                        disabled={row.eligibility !== "ELIGIBLE"}
+                        disabled={row.eligibility === "BLOCKED"}
+                        aria-pressed={selected?.provider_service_id === row.provider_service_id}
                         className={`mapping-option${
                           selected?.provider_service_id === row.provider_service_id
                             ? " is-selected"
@@ -322,7 +347,7 @@ export function MappingControl({
                           <b>
                             {row.eligibility === "ELIGIBLE"
                               ? "✓ Eligible"
-                              : `Compatible — ${row.eligibility_reason}`}
+                              : `Requires review — ${row.eligibility_reason}`}
                           </b>
                         </span>
                       </button>
@@ -356,8 +381,10 @@ export function MappingControl({
                   <button
                     type="button"
                     className="mapping-confirm"
-                    disabled={!selected || selected.eligibility !== "ELIGIBLE"}
-                    onClick={() => setStep(2)}
+                    disabled={!selected || selected.eligibility === "BLOCKED" || busy}
+                    onClick={() => {
+                      if (selected && selected.eligibility !== "BLOCKED") setStep(2);
+                    }}
                   >
                     Continue to Pricing →
                   </button>
@@ -366,6 +393,11 @@ export function MappingControl({
             ) : (
               <>
                 <div className="pricing-popup-body">
+                  {selected?.eligibility === "MANUAL_REVIEW" && (
+                    <div className="pricing-popup-unavailable" role="status">
+                      This provider service needs operation review before it can be mapped. You can review pricing here, but save is unavailable until the provider service is approved.
+                    </div>
+                  )}
                   {/* Provider Summary Panel */}
                   <div className="pricing-provider-summary">
                     <span>PROVIDER CONFIGURATION</span>
@@ -522,6 +554,7 @@ export function MappingControl({
                     className="mapping-confirm"
                     disabled={
                       !selected ||
+                      selected.eligibility !== "ELIGIBLE" ||
                       !isUnitSupported ||
                       priceLoadState !== "loaded" ||
                       !validCustomerPrice(price) ||
@@ -529,7 +562,11 @@ export function MappingControl({
                     }
                     onClick={() => void save()}
                   >
-                    {busy ? "Saving…" : "Save Customer Price & Mapping"}
+                    {busy
+                      ? "Saving…"
+                      : selected?.eligibility === "MANUAL_REVIEW"
+                      ? "Provider Review Required"
+                      : "Save Customer Price & Mapping"}
                   </button>
                 </div>
               </>

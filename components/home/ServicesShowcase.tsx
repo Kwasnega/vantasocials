@@ -35,7 +35,7 @@ export function ServicesShowcase() {
     setCatalogStatus("loading");
 
     try {
-      const response = await fetch("/api/homepage/catalog", { cache: "no-store" });
+      const response = await fetch("/api/homepage/catalog");
       if (!response.ok) {
         setCatalogStatus("error");
         return;

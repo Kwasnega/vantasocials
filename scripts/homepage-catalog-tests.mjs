@@ -44,9 +44,11 @@ assert.doesNotMatch(catalogSource, /selling_rate|provider_rate|currency/);
 assert.match(catalogRoute, /consumeRateLimits/);
 assert.match(catalogRoute, /rateLimited\(result\)/);
 assert.match(catalogRoute, /status: 503/);
-assert.match(catalogRoute, /Cache-Control.*no-store/);
+assert.match(catalogRoute, /Cache-Control.*public,\s*s-maxage=60,\s*stale-while-revalidate=300/);
+assert.match(catalogRoute, /status:\s*503,\s*headers:\s*\{\s*"Cache-Control":\s*"no-store,\s*max-age=0"\s*\}/);
 
-assert.match(component, /fetch\("\/api\/homepage\/catalog", \{ cache: "no-store" \}\)/);
+assert.match(component, /fetch\("\/api\/homepage\/catalog"\)/);
+assert.doesNotMatch(component, /fetch\("\/api\/homepage\/catalog",\s*\{\s*cache:\s*"no-store"\s*\}\)/);
 assert.match(component, /addEventListener\("focus", refreshWhenVisible\)/);
 assert.match(component, /addEventListener\("visibilitychange", refreshWhenVisible\)/);
 assert.doesNotMatch(component, /fetch\("\/api\/platforms"\)|fetch\("\/api\/services"\)/);

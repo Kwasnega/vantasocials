@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
   try {
     return NextResponse.json(await getHomepageCatalog(), {
-      headers: { "Cache-Control": "no-store, max-age=0" },
+      headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" },
     });
   } catch (error) {
     return NextResponse.json(

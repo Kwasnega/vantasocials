@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../../lib/supabase/server";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
 import { assertPayableOrderTotal } from "../../../../lib/pricing/customer-price";
+import { captureServerEvent } from "../../../../lib/posthog/server";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -48,6 +49,10 @@ export async function POST(request: Request) {
       .eq("id", order.id)
       .single();
     if (paidOrderError) throw paidOrderError;
+    await captureServerEvent(user.id, "wallet_payment_completed", {
+      total: paidOrder.total,
+      currency: paidOrder.currency,
+    });
     return NextResponse.json({ order: paidOrder, debit_id: debit?.id ?? null });
   } catch (error) {
     console.error("Wallet order payment failed", error instanceof Error ? JSON.stringify({ name: error.name, message: error.message, stack: error.stack }) : JSON.stringify(error));

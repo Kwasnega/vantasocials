@@ -908,9 +908,9 @@ export function CreateServiceCard({
                   </div>
 
                   <label className="create-service-field create-service-field-wide">
-                    <span>Description</span>
+                    <span>Describe your service (optional)</span>
                     <textarea
-                      placeholder="Optional service details or customer instructions"
+                      placeholder="Describe what customers receive and include any useful instructions."
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       rows={2}

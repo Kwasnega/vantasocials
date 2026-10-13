@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { amountToMinorUnits, initializeWalletPaystack } from "../../../../../lib/payments/paystack";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../../lib/security/rate-limit";
+import { captureServerEvent } from "../../../../../lib/posthog/server";
 
 const MIN_DEPOSIT_MINOR = 100n;
 const MAX_DEPOSIT_MINOR = 1000000n;
@@ -49,6 +50,11 @@ export async function POST(request: Request) {
       const data = initialized.data || {};
       if (typeof data.authorization_url !== "string") throw new Error("Invalid Paystack authorization response.");
       await admin.from("wallet_deposit_payments").update({ status: "AUTHORIZED", provider_response: { authorization_url: data.authorization_url, access_code: typeof data.access_code === "string" ? data.access_code : null } }).eq("id", deposit.id).eq("status", "INITIALIZING");
+      await captureServerEvent(user.id, "wallet_deposit_initialized", {
+        amount_minor: amountMinor.toString(),
+        currency: "GHS",
+        payment_method: "paystack",
+      });
       return NextResponse.json({ authorization_url: data.authorization_url, access_code: typeof data.access_code === "string" ? data.access_code : undefined, reference });
     } catch (error) {
       await admin.from("wallet_deposit_payments").update({ provider_response: { initialization_ambiguous: true } }).eq("id", deposit.id).eq("status", "INITIALIZING");

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../lib/supabase/server";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../lib/security/rate-limit";
 import { validateDynamicFieldValues, validateDynamicOrderInput } from "../../../lib/orders/dynamic-input-validation";
@@ -7,6 +7,8 @@ import type { CustomerInputField } from "../../../lib/customer/service-contract"
 import { normalizeTarget, getTargetContract } from "../../../lib/targets/contracts";
 import { effectiveQuantityRange, quantityInRange } from "../../../lib/targets/quantity";
 import { assertPayableOrderTotal, calculateCustomerTotal, normalizeInternalUnitRate } from "../../../lib/pricing/customer-price";
+import { captureServerEvent } from "../../../lib/posthog/server";
+import { flushPostHogLogs, logPostHogInfo } from "../../../lib/posthog/logs";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const IDEMPOTENCY_CONSTRAINT = "orders_user_id_idempotency_key_key";
@@ -220,6 +222,23 @@ export async function POST(request: Request) {
       }
       throw orderError;
     }
+    await captureServerEvent(user.id, "order_created", {
+      service_id: order.service_id,
+      target_type: order.target_type,
+      quantity: order.quantity,
+      total: order.total,
+      currency: order.currency,
+      uses_dynamic_inputs: hasDynamicFields,
+    });
+    logPostHogInfo("order creation completed", {
+      operation: "order_creation",
+      outcome: "created",
+      target_type: order.target_type,
+      quantity: order.quantity,
+      currency: order.currency,
+      uses_dynamic_inputs: hasDynamicFields,
+    });
+    after(flushPostHogLogs);
     return NextResponse.json(responseOrder(order), { status: 201 });
   } catch (error) {
     console.error("Order creation failed", error);

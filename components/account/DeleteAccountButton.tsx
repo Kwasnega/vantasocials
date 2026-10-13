@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import posthog from "posthog-js";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 
 export function DeleteAccountButton() {
@@ -25,6 +26,7 @@ export function DeleteAccountButton() {
       if (!response.ok) throw new Error(body.error || "Your account could not be deleted.");
 
       const { error: signOutError } = await createSupabaseBrowserClient().auth.signOut({ scope: "global" });
+      if (process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN && process.env.NEXT_PUBLIC_POSTHOG_HOST) posthog.reset();
       if (signOutError) {
         window.location.replace("/login?account=deleted");
         return;

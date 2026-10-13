@@ -3,6 +3,7 @@ import "server-only";
 import { createSupabaseAdminClient } from "../supabase/server";
 import { verifyPaystack, amountToMinorUnits } from "./paystack";
 import { assertPayableOrderTotal } from "../pricing/customer-price";
+import { captureServerEvent } from "../posthog/server";
 
 type PaystackVerificationResponse = Awaited<ReturnType<typeof verifyPaystack>>;
 
@@ -36,5 +37,13 @@ export async function verifyAndSettlePaystack(
   });
   if (settlementError) throw settlementError;
   const result = Array.isArray(settled) ? settled[0] : settled;
-  return { found: true, paid: Boolean(result?.settled) };
+  const paid = Boolean(result?.settled);
+  if (paid) {
+    await captureServerEvent(payment.user_id, "payment_completed", {
+      payment_method: "paystack",
+      total: order.total,
+      currency: order.currency,
+    });
+  }
+  return { found: true, paid };
 }

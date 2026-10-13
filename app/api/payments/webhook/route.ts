@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/server";
 import { verifyAndSettlePaystack } from "../../../../lib/payments/settle";
 import { verifyPaystack } from "../../../../lib/payments/paystack";
+import { captureServerEvent } from "../../../../lib/posthog/server";
+import { flushPostHogLogs, logPostHogError } from "../../../../lib/posthog/logs";
 
 export async function POST(request: Request) {
   const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -39,6 +41,13 @@ export async function POST(request: Request) {
         if (tx.status === "success" && String(tx.reference || "") === reference && String(tx.amount || "") === String(deposit.amount_minor) && String(tx.currency || "") === "GHS") {
           const { error: creditError } = await admin.rpc("credit_wallet_deposit", { p_deposit_id: deposit.id, p_user_id: deposit.user_id, p_provider_reference: reference, p_amount_minor: String(deposit.amount_minor), p_currency: "GHS" });
           if (creditError) throw creditError;
+          if (deposit.status !== "PAID") {
+            await captureServerEvent(deposit.user_id, "wallet_deposit_completed", {
+              amount_minor: deposit.amount_minor,
+              currency: "GHS",
+              payment_method: "paystack",
+            });
+          }
         }
     } else {
       await verifyAndSettlePaystack(reference);
@@ -49,6 +58,12 @@ export async function POST(request: Request) {
   } catch (error) {
     const details = error instanceof Error ? error.message : "unknown";
     console.error("Paystack webhook processing failed", details);
+    logPostHogError("payment webhook processing failed", {
+      operation: "payment_webhook",
+      outcome: "failed",
+      payment_method: "paystack",
+    });
+    after(flushPostHogLogs);
     if (typeof processingToken === "string") await createSupabaseAdminClient().rpc("fail_paystack_webhook_event", { p_event_id: eventId, p_processing_token: processingToken, p_error: details });
     return NextResponse.json({ error: "Webhook processing failed." }, { status: 500 });
   }

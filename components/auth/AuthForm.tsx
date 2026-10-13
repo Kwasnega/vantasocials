@@ -1,9 +1,15 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import type { AuthChangeEvent, Session } from "@supabase/auth-js";
+import posthog from "posthog-js";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
+
+function identifyUser(user: { id: string; email?: string }) {
+  if (!process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN || !process.env.NEXT_PUBLIC_POSTHOG_HOST) return;
+  posthog.identify(user.id, user.email ? { email: user.email } : {});
+}
 
 function safeNext(value: string | null) {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/";
@@ -34,6 +40,7 @@ export function LoginForm() {
         session: Session | null,
       ) => {
         if (event !== "SIGNED_IN" || !session?.user) return;
+        identifyUser(session.user);
         const requestedNext = safeNext(searchParams.get("next"));
         window.location.replace(requestedNext !== "/" ? requestedNext : "/account");
       });
@@ -189,7 +196,8 @@ export function SignupForm() {
         return;
       }
 
-      if (data.session) {
+      if (data.session && data.user) {
+        identifyUser(data.user);
         const next = safeNext(searchParams.get("next"));
         window.location.href = next && next !== "/" ? next : "/account";
         return;

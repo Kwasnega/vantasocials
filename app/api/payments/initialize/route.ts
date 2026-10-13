@@ -1,9 +1,11 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../../lib/supabase/server";
 import { initializePaystack, verifyPaystack } from "../../../../lib/payments/paystack";
 import { verifyAndSettlePaystack } from "../../../../lib/payments/settle";
 import { assertPayableOrderTotal } from "../../../../lib/pricing/customer-price";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
+import { captureServerEvent } from "../../../../lib/posthog/server";
+import { flushPostHogLogs, logPostHogInfo } from "../../../../lib/posthog/logs";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -67,6 +69,18 @@ export async function POST(request: Request) {
     if (typeof data.authorization_url !== "string" || typeof data.reference !== "string") throw new Error("Paystack returned an invalid authorization response.");
     const { error: updateError } = await admin.from("payments").update({ provider_response: { authorization_url: data.authorization_url, access_code: typeof data.access_code === "string" ? data.access_code : null } }).eq("reference", reference).eq("status", "PENDING");
     if (updateError) throw updateError;
+    await captureServerEvent(user.id, "payment_initialized", {
+      payment_method: "paystack",
+      total: order.total,
+      currency: order.currency,
+    });
+    logPostHogInfo("payment authorization initialized", {
+      operation: "payment_initialization",
+      outcome: "authorized",
+      payment_method: "paystack",
+      currency: order.currency,
+    });
+    after(flushPostHogLogs);
     return NextResponse.json({ authorization_url: data.authorization_url, reference: data.reference });
   } catch (error) {
     console.error("Payment initialization failed", error instanceof Error ? error.message : "unknown error");

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { calculatePricing, formatGhsAmount, normalizePricingValue, type PricingResult, type RateUnit } from "../../../lib/pricing/engine";
 import { adminPricePer1000ToUnitRate, unitRateToAdminPricePer1000 } from "../../../lib/pricing/customer-price";
 
@@ -70,6 +71,15 @@ export function MappingControl({
   const [fxUpdatedAt, setFxUpdatedAt] = useState<string | null>(null);
 
   const identity = (row: Row) => `reliablesmm:${row.provider_service_id}`;
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open || step !== 1) return;
@@ -233,7 +243,7 @@ export function MappingControl({
         {current ? "Change mapping" : "Map service"}
       </button>
 
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <div className="mapping-modal-backdrop">
           <section
             className="mapping-modal"
@@ -249,7 +259,7 @@ export function MappingControl({
                 </h2>
                 <p>
                   {step === 1
-                    ? "Select an eligible ReliableSMM catalog service to fulfill this service."
+                    ? "Select a provider service and continue. Eligibility checks determine whether the mapping can be saved."
                     : "Provider economics stay internal; you control the customer selling price."}
                 </p>
               </div>
@@ -311,7 +321,7 @@ export function MappingControl({
                     visible.map((row) => (
                       <button
                         type="button"
-                        disabled={row.eligibility === "BLOCKED"}
+                        disabled={busy}
                         aria-pressed={selected?.provider_service_id === row.provider_service_id}
                         className={`mapping-option${
                           selected?.provider_service_id === row.provider_service_id
@@ -347,7 +357,9 @@ export function MappingControl({
                           <b>
                             {row.eligibility === "ELIGIBLE"
                               ? "✓ Eligible"
-                              : `Requires review — ${row.eligibility_reason}`}
+                              : row.eligibility === "MANUAL_REVIEW"
+                              ? `Requires review — ${row.eligibility_reason}`
+                              : `Unavailable — ${row.eligibility_reason}`}
                           </b>
                         </span>
                       </button>
@@ -381,9 +393,9 @@ export function MappingControl({
                   <button
                     type="button"
                     className="mapping-confirm"
-                    disabled={!selected || selected.eligibility === "BLOCKED" || busy}
+                    disabled={!selected || busy}
                     onClick={() => {
-                      if (selected && selected.eligibility !== "BLOCKED") setStep(2);
+                      if (selected) setStep(2);
                     }}
                   >
                     Continue to Pricing →
@@ -393,9 +405,12 @@ export function MappingControl({
             ) : (
               <>
                 <div className="pricing-popup-body">
-                  {selected?.eligibility === "MANUAL_REVIEW" && (
+                  {selected && selected.eligibility !== "ELIGIBLE" && (
                     <div className="pricing-popup-unavailable" role="status">
-                      This provider service needs operation review before it can be mapped. You can review pricing here, but save is unavailable until the provider service is approved.
+                      {selected.eligibility === "MANUAL_REVIEW"
+                        ? "This provider service needs operation review before it can be mapped."
+                        : "This provider service does not meet the current eligibility checks."}{" "}
+                      Pricing can be reviewed here, but mapping cannot be saved yet. Reason: {selected.eligibility_reason}
                     </div>
                   )}
                   {/* Provider Summary Panel */}
@@ -566,13 +581,16 @@ export function MappingControl({
                       ? "Saving…"
                       : selected?.eligibility === "MANUAL_REVIEW"
                       ? "Provider Review Required"
+                      : selected?.eligibility === "BLOCKED"
+                      ? "Provider Not Eligible"
                       : "Save Customer Price & Mapping"}
                   </button>
                 </div>
               </>
             )}
           </section>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

@@ -38,14 +38,19 @@ assert.equal(candidate(7486, "Instagram Video Views", "instagram-views").eligibi
 assert.equal(candidate(7972, "Instagram Followers", "instagram-followers").eligibility.status, "MANUAL_REVIEW");
 
 const mappingControl = fs.readFileSync("app/admin/services/MappingControl.tsx", "utf8");
+const styles = fs.readFileSync("app/globals.css", "utf8");
 assert.match(mappingControl, /selectedIdentity\s*=\s*useRef/);
 assert.match(mappingControl, /selectedIdentity\.current\s*=\s*identity\(row\)/);
 assert.match(mappingControl, /wanted=selectedIdentity\.current/);
 assert.match(mappingControl, /row\.eligibility===\"ELIGIBLE\"/);
-assert.match(mappingControl, /disabled=\{row\.eligibility === "BLOCKED"\}/);
-assert.match(mappingControl, /disabled={!selected \|\| selected\.eligibility === "BLOCKED" \|\| busy}/);
+assert.match(mappingControl, /disabled=\{busy\}/);
+assert.match(mappingControl, /disabled={!selected \|\| busy}/);
 assert.match(mappingControl, /selected\.eligibility !== "ELIGIBLE"/);
-assert.match(mappingControl, /Requires review — \$\{row\.eligibility_reason\}/);
+assert.match(mappingControl, /Unavailable — \$\{row\.eligibility_reason\}/);
+assert.match(mappingControl, /Select a provider service and continue\. Eligibility checks determine whether the mapping can be saved\./);
+assert.match(mappingControl, /createPortal/);
+assert.match(styles, /\.mapping-modal-actions \{ flex:0 0 auto; margin-top:auto;/);
+assert.match(styles, /\.mapping-results \{ flex:1 1 auto; min-height:0;/);
 assert.equal(assessProviderEligibility({ serviceSlug: "x-reposts", targetContract: null, vantaMin: 1, vantaMax: 100000, provider: { provider: "reliablesmm", provider_service_id: "", name: "", provider_status: "ACTIVE", provider_currency: "USD", rate_unit: "PER_1000", min_quantity: 1, max_quantity: 100000 } }).status, "BLOCKED");
 
 const catalog = Array.from({ length: 2005 }, (_, index) => ({ id: String(index + 1), name: "Unrelated" }));

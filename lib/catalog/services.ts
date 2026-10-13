@@ -11,12 +11,23 @@ function normalizeCatalogService(row: CatalogServiceRow): CatalogService {
 
 export async function getServices(platformSlug?: string): Promise<CatalogService[]> {
   const supabase = await createSupabaseServerClient();
+  const { data: activePlatforms, error: platformsError } = await supabase
+    .from("platforms")
+    .select("id,slug")
+    .eq("active", true);
+  if (platformsError) throw platformsError;
+
+  const platform = platformSlug
+    ? (activePlatforms ?? []).find((item) => item.slug === platformSlug)
+    : null;
+  if (!platformSlug && !(activePlatforms ?? []).length) return [];
+
   let query = supabase.from("service_catalog").select("id,platform_id,name,slug,category,description,service_type,target_type,min_quantity,max_quantity,selling_rate,currency,active").order("name");
   if (platformSlug) {
-    const { data: platform, error } = await supabase.from("platforms").select("id").eq("slug", platformSlug).eq("active", true).maybeSingle();
-    if (error) throw error;
     if (!platform) return [];
     query = query.eq("platform_id", platform.id);
+  } else {
+    query = query.in("platform_id", (activePlatforms ?? []).map((item) => item.id));
   }
   const { data, error } = await query;
   if (error) throw error;

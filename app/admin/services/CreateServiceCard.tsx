@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { getPlatformLogoUrl } from "../../../lib/catalog/logo";
 import { calculatePricing, formatGhsAmount, normalizePricingValue, type RateUnit } from "../../../lib/pricing/engine";
 import { adminPricePer1000ToUnitRate } from "../../../lib/pricing/customer-price";
@@ -114,6 +115,15 @@ export function CreateServiceCard({
   const [newPlatformName, setNewPlatformName] = useState(PROVIDER_SUPPORTED_PLATFORMS[0].name);
   const [newPlatformColor, setNewPlatformColor] = useState(PROVIDER_SUPPORTED_PLATFORMS[0].color);
   const [newPlatformDesc, setNewPlatformDesc] = useState(PROVIDER_SUPPORTED_PLATFORMS[0].description);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
 
   const currentPlatform = useMemo(
     () => platforms.find((p) => p.id === selectedPlatformId),
@@ -345,7 +355,7 @@ export function CreateServiceCard({
         {triggerLabel}
       </button>
 
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <div className="mapping-modal-backdrop">
           <section className="mapping-modal create-service-modal" role="dialog" aria-modal="true">
             <header className="mapping-modal-header">
@@ -924,7 +934,8 @@ export function CreateServiceCard({
               </form>
             )}
           </section>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

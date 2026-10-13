@@ -237,6 +237,8 @@ for (const { label, status, body, reject } of [
 }
 
 {
+  const paymentOptionsSource = fs.readFileSync("components/checkout/CheckoutPaymentOptions.tsx", "utf8");
+  assert.doesNotMatch(paymentOptionsSource, /Direct Payment \(Paystack\)|Cards|MoMo|Pay via Paystack|CheckoutPayButton/);
   const harness = createHarness({
     fetch: async () => response(200, {
       order: { public_order_id: "VNT-WALLET1", payment_status: "PAID" },
@@ -253,6 +255,8 @@ for (const { label, status, body, reject } of [
     balanceMinor: "5000",
     totalAmount: "10.00",
   }));
+  assert.match(textContent(tree), /VANTA Wallet/);
+  assert.doesNotMatch(textContent(tree), /Direct Payment \(Paystack\)|Cards|MoMo/);
   const button = findNode(tree, (node) => node.type === "button" && node.props?.className === "checkout-btn checkout-btn-wallet");
   assert.ok(button, "wallet payment action is available with sufficient balance");
   await button.props.onClick();

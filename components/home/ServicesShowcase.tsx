@@ -35,7 +35,7 @@ export function ServicesShowcase() {
     setCatalogStatus("loading");
 
     try {
-      const response = await fetch("/api/homepage/catalog");
+      const response = await fetch("/api/homepage/catalog", { cache: "no-store" });
       if (!response.ok) {
         setCatalogStatus("error");
         return;
@@ -64,6 +64,18 @@ export function ServicesShowcase() {
     if (initialLoadStarted.current) return;
     initialLoadStarted.current = true;
     void loadCatalog();
+  }, [loadCatalog]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadCatalog();
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [loadCatalog]);
 
   return <section className="services-showcase" id="services" aria-labelledby="services-heading">

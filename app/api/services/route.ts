@@ -4,6 +4,6 @@ import { clientIp, consumeRateLimits, rateLimited } from "../../../lib/security/
 
 export async function GET(request: NextRequest) {
   try { const rl = await consumeRateLimits([{ key: `ip:${clientIp(request)}:catalog`, limit: 120, windowSeconds: 60 }]); if (!rl.allowed) return rateLimited(rl); } catch { /* public catalog may fail open */ }
-  try { return NextResponse.json(await getServices(request.nextUrl.searchParams.get("platform") ?? undefined)); }
-  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load services." }, { status: 503 }); }
+  try { return NextResponse.json(await getServices(request.nextUrl.searchParams.get("platform") ?? undefined), { headers: { "Cache-Control": "no-store, max-age=0" } }); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load services." }, { status: 503, headers: { "Cache-Control": "no-store, max-age=0" } }); }
 }

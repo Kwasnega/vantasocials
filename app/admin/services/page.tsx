@@ -17,6 +17,7 @@ import {
   resolveProviderPlatformCompatibility,
 } from "../../../lib/admin/provider-compatibility";
 import { formatGhsAmount, normalizePricingValue, normalizeProviderPricingValue } from "../../../lib/pricing/engine";
+import { deriveAdminServiceVisibility } from "../../../lib/admin/service-visibility";
 
 type Service = {
   id: string;
@@ -44,6 +45,8 @@ type Service = {
   economics_source: string;
   eligibility: string;
 };
+
+type AdminPlatformRecord = AdminPlatform & { active: boolean };
 
 function ServiceTable({
   services,
@@ -162,7 +165,7 @@ export default async function AdminServicesPage() {
       )
       .order("slug"),
     db.from("pricing_settings").select("fx_rate,fx_source,updated_at").eq("key", "USD_GHS").maybeSingle(),
-    db.from("platforms").select("id,name,slug,logo,color,description").eq("active", true).order("name"),
+    db.from("platforms").select("id,name,slug,logo,color,description,active").order("name"),
   ]);
 
   const rawServices = (servicesData ?? []) as Omit<Service, "catalog_status" | "catalog_updated_at" | "economics_rate" | "economics_unit" | "economics_currency" | "economics_source" | "eligibility">[];
@@ -227,12 +230,13 @@ export default async function AdminServicesPage() {
       eligibility,
     };
   });
-  const publishedServices = services.filter((service) => service.active);
-  const hiddenServices = services.filter((service) => !service.active);
-  const platforms = (platformsData ?? []) as AdminPlatform[];
-  const livePlatforms = platforms.filter((platform) =>
-    publishedServices.some((service) => service.platform_id === platform.id)
-  );
+  const platforms = (platformsData ?? []) as AdminPlatformRecord[];
+  const {
+    customerPlatforms: activePlatforms,
+    publishedByPlatform,
+    hiddenServices,
+    unavailablePlatformServices,
+  } = deriveAdminServiceVisibility(platforms, services);
   let fxRate: string | null = null;
   let fxError: string | null = null;
   if (!settingError && setting?.fx_rate != null) {
@@ -245,7 +249,7 @@ export default async function AdminServicesPage() {
   const fxUpdatedAt = settingError ? null : setting?.updated_at ?? null;
   const fxSource = settingError ? null : setting?.fx_source ?? null;
 
-  const platformsWithCounts: AdminPlatform[] = platforms.map((p) => ({
+  const platformsWithCounts: AdminPlatform[] = activePlatforms.map((p) => ({
     ...p,
     servicesCount: services.filter((s) => s.platform_id === p.id).length,
   }));
@@ -269,16 +273,14 @@ export default async function AdminServicesPage() {
       </header>
 
       {/* Top Action Card */}
-      {platformsError ? <AdminQueryError message="Platforms could not be loaded. Service creation is unavailable until this is resolved." /> : <div className="dashboard-card create-service-card" style={{ marginBottom: "20px" }}>
+      {platformsError ? <AdminQueryError message="Platforms could not be loaded. Service creation is unavailable until this is resolved." /> : <section className="services-add-panel">
         <div>
-          <p className="dashboard-kicker">VANTA CATALOG</p>
-          <h2>Add Services by Platform</h2>
-          <p>
-            Select a social media platform to add new growth services under its card.
-          </p>
+          <p className="dashboard-kicker">CATALOG MANAGEMENT</p>
+          <h2>Add a service</h2>
+          <p>Create a service and place it under the right social platform.</p>
         </div>
-        <CreateServiceCard platforms={platformsWithCounts} fxRate={fxRate} fxError={fxError} fxUpdatedAt={fxUpdatedAt} fxSource={fxSource} />
-      </div>}
+        <CreateServiceCard platforms={platformsWithCounts} triggerClassName="services-add-primary" fxRate={fxRate} fxError={fxError} fxUpdatedAt={fxUpdatedAt} fxSource={fxSource} />
+      </section>}
       {servicesError && <AdminQueryError message="Service records could not be loaded. Catalog counts and lists are unavailable." />}
       {platformsError && <AdminQueryError message="Active platforms could not be loaded." />}
       {settingError && <AdminQueryError message="Pricing settings could not be loaded. Pricing previews may be unavailable." />}
@@ -288,7 +290,7 @@ export default async function AdminServicesPage() {
       {!servicesError && <section className="services-summary">
         <article>
           <span>Platforms</span>
-          {platformsError ? <AdminQueryError message="Unavailable" /> : <strong>{platforms.length}</strong>}
+          {platformsError ? <AdminQueryError message="Unavailable" /> : <strong>{activePlatforms.length}</strong>}
           <small>Active social platforms</small>
         </article>
         <article>
@@ -311,67 +313,55 @@ export default async function AdminServicesPage() {
       {/* Published services only; this mirrors the customer-visible catalog. */}
       {!servicesError && <div className="service-category-list">
         {platformsError ? <AdminQueryError message="Published service groups could not be loaded because platform data is unavailable." /> : null}
-        {!platformsError && livePlatforms.map((platform, index) => {
-          const platformServices = publishedServices.filter((s) => s.platform_id === platform.id);
+        {!platformsError && activePlatforms.map((platform, index) => {
+          const platformServices = publishedByPlatform.get(platform.id) ?? [];
           const logoUrl = getPlatformLogoUrl(platform.slug);
 
           return (
-            <details
-              className="service-category"
-              key={platform.id}
-              name="service-category"
-              open={index === 0}
-            >
-              <summary className="service-category-heading">
-                <span className="service-category-platform">
-                  <span className="service-category-logo">
-                    {logoUrl ? <img src={logoUrl} alt="" /> : platform.logo || platform.name.slice(0, 2)}
+            <div className="service-category-item" key={platform.id}>
+              <CreateServiceCard
+                platforms={platformsWithCounts}
+                defaultPlatformId={platform.id}
+                triggerLabel={`Add ${platform.name} service`}
+                triggerClassName="service-add-platform"
+                fxRate={fxRate}
+                fxError={fxError}
+                fxUpdatedAt={fxUpdatedAt}
+                fxSource={fxSource}
+              />
+              <details
+                className="service-category"
+                name="service-category"
+                open={index === 0}
+              >
+                <summary className="service-category-heading">
+                  <span className="service-category-platform">
+                    <span className="service-category-logo">
+                      {logoUrl ? <img src={logoUrl} alt="" /> : platform.logo || platform.name.slice(0, 2)}
+                    </span>
+                    <span className="service-category-title">
+                      <h2>{platform.name}</h2>
+                      <span className="service-category-count">
+                            {platformServices.length} published {platformServices.length === 1 ? "service" : "services"}
+                      </span>
+                    </span>
                   </span>
-                  <h2>{platform.name}</h2>
-                  <span
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: "999px",
-                      background: "#2a153c",
-                      border: "1px solid #482968",
-                      color: "#d8c8e0",
-                      fontSize: "12px",
-                      fontWeight: 800,
-                    }}
-                  >
-                    {platformServices.length}{" "}
-                    {platformServices.length === 1 ? "service" : "services"}
-                  </span>
-                </span>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <CreateServiceCard
-                    platforms={platformsWithCounts}
-                    defaultPlatformId={platform.id}
-                    triggerLabel={`+ Add ${platform.name} Service`}
-                    triggerClassName="mapping-confirm"
-                    fxRate={fxRate}
-                    fxError={fxError}
-                    fxUpdatedAt={fxUpdatedAt}
-                    fxSource={fxSource}
-                  />
-                  <span className="service-category-chevron" aria-hidden="true">
-                    ⌄
-                  </span>
+                  <span className="service-category-chevron" aria-hidden="true">⌄</span>
+                </summary>
+                <div className="dashboard-card service-category-card">
+                  <ServiceTable services={platformServices} fxRate={fxRate} fxError={fxError} fxUpdatedAt={fxUpdatedAt} fxSource={fxSource} />
                 </div>
-              </summary>
-
-              <div className="dashboard-card service-category-card">
-                <ServiceTable services={platformServices} fxRate={fxRate} fxError={fxError} fxUpdatedAt={fxUpdatedAt} fxSource={fxSource} />
-              </div>
-            </details>
+              </details>
+            </div>
           );
         })}
-        {!platformsError && livePlatforms.length === 0 && <AdminEmptyState message="No services are currently published on the homepage." />}
+        {!platformsError && activePlatforms.length === 0 && <AdminEmptyState message="No active platforms are available. Activate a platform before adding customer-visible services." />}
       </div>}
 
-      {!servicesError && hiddenServices.length > 0 && (
-        <details className="service-category" style={{ marginTop: "24px" }}>
+      {!servicesError && (hiddenServices.length > 0 || unavailablePlatformServices.length > 0) && (
+        <>
+        {hiddenServices.length > 0 && (
+        <details className="service-category service-category-hidden" style={{ marginTop: "24px" }}>
           <summary className="service-category-heading">
             <span className="service-category-platform">
               <h2>Hidden / unpublished services</h2>
@@ -401,6 +391,27 @@ export default async function AdminServicesPage() {
             <ServiceTable services={hiddenServices} fxRate={fxRate} fxError={fxError} fxUpdatedAt={fxUpdatedAt} fxSource={fxSource} showPlatform />
           </div>
         </details>
+        )}
+        {unavailablePlatformServices.length > 0 && (
+          <details className="service-category service-category-hidden" style={{ marginTop: "16px" }}>
+            <summary className="service-category-heading">
+              <span className="service-category-platform">
+                <span className="service-category-title">
+                  <h2>Services on inactive or missing platforms</h2>
+                  <span className="service-category-count">{unavailablePlatformServices.length} not customer-visible</span>
+                </span>
+              </span>
+              <span className="service-category-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <div className="dashboard-card service-category-card">
+              <p style={{ margin: "0 0 16px", color: "#a99bb2" }}>
+                These records are retained in the admin database, but their platform is inactive or unavailable, so customers cannot browse them.
+              </p>
+              <ServiceTable services={unavailablePlatformServices} fxRate={fxRate} fxError={fxError} fxUpdatedAt={fxUpdatedAt} fxSource={fxSource} showPlatform />
+            </div>
+          </details>
+        )}
+        </>
       )}
     </div>
   );

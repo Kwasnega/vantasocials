@@ -111,6 +111,10 @@ assert.match(pageSource, /select\("public_order_id,total,currency,payment_status
 assert.match(pageSource, /\.order\("created_at", \{ ascending: false \}\)\.limit\(5\)/);
 assert.doesNotMatch(pageSource, /\.eq\("payment_status", "PAID"\)/);
 assert.doesNotMatch(pageSource, /\.reduce\(\(sum, order\)/);
+assert.match(pageSource, /TOTAL ORDERS/);
+assert.match(pageSource, /TOTAL SPENT/);
+assert.doesNotMatch(pageSource, /PENDING \/ FAILED|Orders delivered|Unsuccessful orders|In progress/);
+assert.doesNotMatch(pageSource, /COMPLETED|PROCESSING/);
 assert.equal((pageSource.match(/Promise\.all\(/g) ?? []).length, 1);
 
 console.log("account-overview-tests: passed");

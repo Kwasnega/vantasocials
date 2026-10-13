@@ -173,25 +173,6 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
 
                 {/* Price Breakdown / Receipt Table */}
                 <div className="checkout-receipt">
-                  <div className="checkout-receipt-row">
-                    <span>Base Rate (per unit)</span>
-                    <span>{checkoutOrder.unit_price} {checkoutOrder.currency}</span>
-                  </div>
-                  <div className="checkout-receipt-row">
-                    <span>Quantity Multiplier</span>
-                    <span>× {checkoutOrder.quantity.toLocaleString()}</span>
-                  </div>
-                  <div className="checkout-receipt-row">
-                    <span>Subtotal</span>
-                    <span>{checkoutOrder.subtotal} {checkoutOrder.currency}</span>
-                  </div>
-                  <div className="checkout-receipt-row checkout-receipt-free">
-                    <span>Automated Processing Fee</span>
-                    <span className="checkout-free-badge">0.00 {checkoutOrder.currency} (FREE)</span>
-                  </div>
-
-                  <div className="checkout-receipt-divider" />
-
                   <div className="checkout-receipt-total-row">
                     <div>
                       <strong>Total Due</strong>

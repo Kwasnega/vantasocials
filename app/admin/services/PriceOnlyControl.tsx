@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { calculatePricing, formatGhsAmount, normalizePricingValue, type RateUnit } from "../../../lib/pricing/engine";
 import { adminPricePer1000ToUnitRate, unitRateToAdminPricePer1000 } from "../../../lib/pricing/customer-price";
 
@@ -39,6 +40,15 @@ export function PriceOnlyControl({
   const [fxError, setFxError] = useState<string | null>(null);
   const [fxUpdatedAt, setFxUpdatedAt] = useState<string | null>(null);
   const [fxSource, setFxSource] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -124,7 +134,7 @@ export function PriceOnlyControl({
       <button type="button" className="service-card-action" onClick={() => { setState("idle"); setOpen(true); }}>
         Edit customer price
       </button>
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <div className="mapping-modal-backdrop">
           <section className="mapping-modal price-edit-modal" role="dialog" aria-modal="true" aria-labelledby={`price-edit-${slug}`}>
             <header className="mapping-modal-header">
@@ -169,7 +179,8 @@ export function PriceOnlyControl({
               </button>
             </div>
           </section>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

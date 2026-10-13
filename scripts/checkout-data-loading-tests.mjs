@@ -4,6 +4,7 @@ import vm from "node:vm";
 import ts from "typescript";
 
 const source = fs.readFileSync("lib/orders/checkout.ts", "utf8");
+const checkoutPage = fs.readFileSync("app/checkout/page.tsx", "utf8");
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS },
 }).outputText;
@@ -213,5 +214,9 @@ for (const table of ["orders", "services", "platforms", "wallets"]) {
   test.releaseReads();
   assert.equal((await loading).total, "10.00");
 }
+
+assert.match(checkoutPage, /<span className="checkout-spec-label">Quantity<\/span>/);
+assert.match(checkoutPage, /<strong>Total Due<\/strong>/);
+assert.doesNotMatch(checkoutPage, /Base Rate \(per unit\)|Quantity Multiplier|Automated Processing Fee/);
 
 console.log("checkout-data-loading-tests: passed");

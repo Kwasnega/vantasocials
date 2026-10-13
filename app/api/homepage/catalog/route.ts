@@ -13,11 +13,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    return NextResponse.json(await getHomepageCatalog());
+    return NextResponse.json(await getHomepageCatalog(), {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to load homepage catalog." },
-      { status: 503 }
+      { status: 503, headers: { "Cache-Control": "no-store, max-age=0" } }
     );
   }
 }

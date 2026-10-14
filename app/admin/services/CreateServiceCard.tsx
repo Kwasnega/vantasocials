@@ -430,17 +430,8 @@ export function CreateServiceCard({
               </div>
             ) : mode === "platform_select" ? (
               /* Step 1: Platform Selection */
-              <div style={{ padding: "20px 30px 30px" }}>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-                    gap: "14px",
-                    maxHeight: "440px",
-                    overflowY: "auto",
-                    padding: "4px",
-                  }}
-                >
+              <div className="create-service-platform-select">
+                <div className="create-service-platform-grid">
                   {platforms.map((p) => {
                     const logoUrl = getPlatformLogoUrl(p.slug);
                     return (

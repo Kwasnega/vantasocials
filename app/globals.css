@@ -207,6 +207,8 @@ h1 span { display:block; }.intro { max-width:615px; margin:27px auto 0; font-siz
 .create-service-modal .dashboard-kicker { margin:0; letter-spacing:.16em; font-size:11px; }
 .create-service-modal .mapping-modal-header h2 { margin:0 0 12px; font-size:clamp(2.3rem,3vw,4.2rem); letter-spacing:-.06em; line-height:.95; }
 .create-service-modal .mapping-modal-header p:last-child { font-size:14px; line-height:1.5; color:#d7c7e1; }
+.create-service-platform-select { flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:20px 30px 30px; }
+.create-service-platform-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:14px; padding:4px; }
 .create-service-form { display:grid; gap:18px; padding:20px 30px 0; max-height:560px; overflow-y:auto; }
 .create-service-platform-banner { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-radius:12px; background:rgba(216,131,255,.08); border:1px solid #4a286c; }
 .create-service-actions { position:sticky; bottom:0; margin-top:8px; padding-top:18px; border-top:1px solid rgba(82,52,106,.8); background:linear-gradient(180deg, rgba(18,9,29,0) 0%, rgba(18,9,29,.94) 20%, rgba(18,9,29,.98) 100%); }
@@ -422,6 +424,8 @@ h1 span { display:block; }.intro { max-width:615px; margin:27px auto 0; font-siz
   .mapping-modal-header h2 { max-width:calc(100vw - 100px); font-size:23px; overflow-wrap:anywhere; }
   .mapping-modal-header p:last-child { overflow-wrap:anywhere; }
   .mapping-modal-close { flex:0 0 44px; width:44px; height:44px; }
+  .create-service-platform-select { padding:16px 18px 22px; }
+  .create-service-platform-grid { grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); }
   .mapping-results { min-height:0; max-height:none; flex:1; padding:0 14px; }
   .mapping-option { gap:10px; padding:12px; }
   .mapping-option-id { flex-basis:52px; min-width:52px; }

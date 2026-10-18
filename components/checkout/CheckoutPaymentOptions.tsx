@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
 import { useState } from "react";
 
 export function CheckoutPaymentOptions({
@@ -9,11 +10,13 @@ export function CheckoutPaymentOptions({
   balanceMinor,
   totalAmount,
   currency = "GHS",
+  support,
 }: {
   orderId: string;
   balanceMinor: string;
   totalAmount: string;
   currency?: string;
+  support?: ReactNode;
 }) {
   const router = useRouter();
   const balanceMajor = Number(balanceMinor || 0) / 100;
@@ -23,6 +26,7 @@ export function CheckoutPaymentOptions({
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
 
   async function payFromWallet() {
     setBusy(true);
@@ -47,7 +51,8 @@ export function CheckoutPaymentOptions({
       if (confirmedOrder.public_order_id !== orderId || confirmedOrder.payment_status !== "PAID") {
         throw new Error("We couldn’t confirm the payment result. Check your order status before trying again.");
       }
-      router.push(`/account/orders/${encodeURIComponent(confirmedOrder.public_order_id)}`);
+      setPaymentConfirmed(true);
+      router.replace(`/account/orders/${encodeURIComponent(confirmedOrder.public_order_id)}`);
     } catch (cause) {
       setError(paymentWasRejected && cause instanceof Error
         ? cause.message
@@ -87,12 +92,14 @@ export function CheckoutPaymentOptions({
             type="button"
             className="checkout-btn checkout-btn-wallet"
             onClick={payFromWallet}
-            disabled={busy || !hasSufficientBalance}
+            disabled={busy || paymentConfirmed || !hasSufficientBalance}
           >
-            {busy ? (
+            {paymentConfirmed ? (
+              <span>Payment confirmed · Opening your order…</span>
+            ) : busy ? (
               <>
                 <span className="checkout-spinner" aria-hidden="true" />
-                <span>Processing wallet payment…</span>
+                <span>Confirming payment…</span>
               </>
             ) : (
               <>
@@ -114,7 +121,14 @@ export function CheckoutPaymentOptions({
             <p>{error}</p>
           </div>
         )}
+        {paymentConfirmed && (
+          <p className="checkout-payment-confirmed" role="status" aria-live="polite">
+            Your payment is confirmed. Opening your order details…
+          </p>
+        )}
       </div>
+
+      {support}
 
       <div className="checkout-trust-footer">
         <span>🔒 256-bit Bank-grade Encryption</span>

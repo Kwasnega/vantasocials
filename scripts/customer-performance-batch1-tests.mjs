@@ -10,7 +10,10 @@ function createHarness({ fetch: fetchMock }) {
   const navigations = [];
   const timerDelays = [];
   let hookIndex = 0;
-  const router = { push: (url) => navigations.push(url) };
+  const router = {
+    push: (url) => navigations.push(url),
+    replace: (url) => navigations.push(url),
+  };
 
   const hooks = {
     useState(initial) {
@@ -261,6 +264,11 @@ for (const { label, status, body, reject } of [
   assert.ok(button, "wallet payment action is available with sufficient balance");
   await button.props.onClick();
   assert.deepEqual(harness.navigations, ["/account/orders/VNT-WALLET1"]);
+  assert.match(textContent(harness.render(() => CheckoutPaymentOptions({
+    orderId: "VNT-WALLET1",
+    balanceMinor: "5000",
+    totalAmount: "10.00",
+  }))), /Payment confirmed · Opening your order/);
   assert.deepEqual(harness.timerDelays, [], "confirmed wallet payment has no artificial delay");
 }
 

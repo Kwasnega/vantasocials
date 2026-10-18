@@ -1,0 +1,44 @@
+-- Performance: global admin orders sort index.
+--
+-- The admin orders page orders all rows by created_at DESC with no user_id
+-- filter. Without this index, PostgreSQL has no index path for this sort;
+-- the planner's only option is a sequential scan with an in-memory sort.
+-- Once the index exists, the cost-based planner will use it when it
+-- estimates an index scan to be cheaper than a sequential scan, which is
+-- typically the case for paginated queries on larger tables.
+--
+-- This index supports:
+--   ORDER BY created_at DESC               (admin orders list, all pages)
+--   WHERE created_at >= ?                  (future date-range filters)
+--
+-- The existing orders_user_created_at_idx (user_id, created_at DESC) is
+-- intentionally NOT used here because its leading column is user_id, making
+-- it unusable for unfiltered global queries.
+--
+-- NOTE ON CONCURRENTLY:
+-- PostgreSQL prohibits CREATE INDEX CONCURRENTLY inside a transaction block
+-- (this is a PostgreSQL constraint, not a CLI assumption). The Supabase CLI
+-- is expected to wrap each migration in a transaction during db push, and no
+-- --no-transaction flag is exposed by the installed CLI (v2.118.0). Omitting
+-- CONCURRENTLY is therefore the safe choice for this migration workflow.
+-- This standard CREATE INDEX acquires a SHARE lock (ShareLock) for the
+-- duration of the index build. SHARE lock permits concurrent reads (ordinary
+-- SELECT queries continue normally) but conflicts with concurrent writes
+-- (INSERT, UPDATE, DELETE are blocked until the build completes). Build
+-- duration depends on table row count and database resources such as
+-- maintenance_work_mem; it will be fast on a small table but should not be
+-- assumed to complete in a fixed time. Apply during a low-traffic window if
+-- the orders table has grown substantially, or apply the index manually
+-- outside the CLI using CREATE INDEX CONCURRENTLY and record it in the
+-- migration history table.
+--
+-- Insert overhead:  one additional btree entry per INSERT INTO orders.
+--                   created_at is never updated (only updated_at changes),
+--                   so there is zero UPDATE maintenance cost for this index.
+-- Storage overhead: a single-column btree on a monotonically increasing
+--                   timestamptz. Estimated at ~50–70 bytes per row plus
+--                   page overhead; negligible for thousands of orders.
+-- No application code changes are required.
+
+create index if not exists orders_created_at_desc_idx
+  on public.orders (created_at desc);

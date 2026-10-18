@@ -6,6 +6,8 @@ import { createPortal } from "react-dom";
 import { getPlatformLogoUrl } from "../../../lib/catalog/logo";
 import { calculatePricing, formatGhsAmount, normalizePricingValue, type RateUnit } from "../../../lib/pricing/engine";
 import { adminPricePer1000ToUnitRate } from "../../../lib/pricing/customer-price";
+import { matchesApprovedProviderOperation } from "../../../lib/admin/provider-compatibility";
+import { slugFromName } from "../../../lib/admin/service-creation";
 
 export type AdminPlatform = {
   id: string;
@@ -28,12 +30,27 @@ type ProviderRow = {
   refill_supported: boolean;
   cancel_supported: boolean;
   provider_status: string;
+  category?: string;
   last_synced_at?: string | null;
+  detected_platform?: string | null;
   compatibility_state?: "READY" | "MISSING_METADATA" | "UNSUPPORTED_TARGET";
   compatibility?: { platform: string; targetType: string } | null;
   compatibility_reason?: string | null;
   mapped_service?: { name: string } | null;
+  raw_metadata?: unknown;
 };
+
+function isProviderRow(value: unknown): value is ProviderRow {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.provider_service_id === "string" &&
+    typeof row.name === "string" &&
+    (typeof row.provider_rate === "string" || typeof row.provider_rate === "number") &&
+    typeof row.provider_currency === "string" &&
+    typeof row.rate_unit === "string" &&
+    typeof row.min_quantity === "number" &&
+    typeof row.max_quantity === "number";
+}
 
 // Known platforms offered by ReliableSMM / supported providers
 const PROVIDER_SUPPORTED_PLATFORMS = [
@@ -98,6 +115,7 @@ export function CreateServiceCard({
   const [browseCatalog, setBrowseCatalog] = useState(false);
   const [catalogRows, setCatalogRows] = useState<ProviderRow[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [selectedProviderRow, setSelectedProviderRow] = useState<ProviderRow | null>(null);
 
@@ -133,28 +151,14 @@ export function CreateServiceCard({
     ? getPlatformLogoUrl(currentPlatform.slug)
     : null;
 
-  // Filter catalog rows to ONLY show services for the active platform
+  // The API already scopes results to the selected platform using catalog metadata.
   const filteredCatalog = useMemo(() => {
-    let list = catalogRows;
-    if (currentPlatform?.slug) {
-      const pSlug = currentPlatform.slug.toLowerCase();
-      list = list.filter((r) => {
-        const plat = r.compatibility?.platform?.toLowerCase();
-        if (plat) {
-          if (pSlug === "x" && (plat === "twitter" || plat === "x")) return true;
-          if (plat === pSlug) return true;
-        }
-        const text = `${r.name} ${r.provider_service_id}`.toLowerCase();
-        if (pSlug === "x") return text.includes("twitter") || text.includes("tweet") || text.includes(" x ");
-        return text.includes(pSlug);
-      });
-    }
-    if (!catalogQuery) return list;
+    if (!catalogQuery) return catalogRows;
     const q = catalogQuery.toLowerCase();
-    return list.filter(
-      (r) => r.name.toLowerCase().includes(q) || r.provider_service_id.includes(q)
+    return catalogRows.filter(
+      (r) => `${r.name} ${r.category ?? ""} ${r.provider_service_id}`.toLowerCase().includes(q)
     );
-  }, [catalogRows, catalogQuery, currentPlatform]);
+  }, [catalogRows, catalogQuery]);
 
   const creationEconomics = useMemo(() => {
     const unit = selectedProviderRow?.rate_unit;
@@ -176,6 +180,20 @@ export function CreateServiceCard({
       return null;
     }
   }, [selectedProviderRow, fxRate, sellingRate]);
+
+  const providerOperationApproved = useMemo(() => {
+    if (!selectedProviderRow) return false;
+    const metadata = selectedProviderRow.raw_metadata && typeof selectedProviderRow.raw_metadata === "object" && !Array.isArray(selectedProviderRow.raw_metadata)
+      ? selectedProviderRow.raw_metadata as Record<string, unknown>
+      : {};
+    const providerCategory = typeof metadata.category === "string" ? metadata.category : selectedProviderRow.category ?? "";
+    return matchesApprovedProviderOperation(
+      slugFromName(serviceName),
+      selectedProviderRow.provider_service_id,
+      selectedProviderRow.name,
+      providerCategory,
+    );
+  }, [selectedProviderRow, serviceName]);
 
   function openModal(platformId?: string) {
     setMessage("");
@@ -203,16 +221,33 @@ export function CreateServiceCard({
 
   async function loadProviderCatalog() {
     setBrowseCatalog(true);
-    if (catalogRows.length > 0) return;
+    setCatalogError("");
+    setCatalogRows([]);
+    setCatalogQuery("");
     setCatalogLoading(true);
     try {
-      const pSlug = currentPlatform?.slug ? `&platform=${encodeURIComponent(currentPlatform.slug)}` : "";
-      const res = await fetch(`/api/admin/provider-catalog?browse=1${pSlug}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load provider catalog.");
-      setCatalogRows(data.services || []);
+      const url = new URL("/api/admin/provider-catalog", window.location.origin);
+      url.searchParams.set("browse", "1");
+      if (currentPlatform?.slug) url.searchParams.set("platform", currentPlatform.slug);
+
+      const response = await fetch(url);
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const errorMessage = body && typeof body === "object" && !Array.isArray(body) &&
+          "error" in body && typeof body.error === "string"
+          ? body.error
+          : "Failed to load provider catalog.";
+        throw new Error(errorMessage);
+      }
+
+      if (!body || typeof body !== "object" || !("services" in body) || !Array.isArray(body.services) ||
+        !body.services.every(isProviderRow)) {
+        throw new Error("The provider catalog returned an invalid response.");
+      }
+
+      setCatalogRows(body.services);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Failed to load catalog.");
+      setCatalogError(err instanceof Error ? err.message : "Failed to load catalog.");
     } finally {
       setCatalogLoading(false);
     }
@@ -220,10 +255,39 @@ export function CreateServiceCard({
 
   function handleSelectProviderRow(row: ProviderRow) {
     setSelectedProviderRow(row);
-    if (!serviceName) setServiceName(row.name);
+    setServiceName(row.name);
+    const metadata = row.raw_metadata && typeof row.raw_metadata === "object" && !Array.isArray(row.raw_metadata)
+      ? row.raw_metadata as Record<string, unknown>
+      : {};
+    const providerCategory = (row.category ?? (typeof metadata.category === "string" ? metadata.category : "")).trim();
+    setCategory(providerCategory || "Standard");
     if (row.min_quantity) setMinQty(String(row.min_quantity));
     if (row.max_quantity) setMaxQty(String(row.max_quantity));
-    setTargetType("url");
+    const rawTarget = [
+      metadata.target_type,
+      metadata.targetType,
+      metadata.input_type,
+      metadata.inputType,
+    ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+    const inferredTarget = (row.compatibility?.targetType ?? rawTarget)?.toLowerCase();
+    const allowedTarget = TARGET_OPTIONS.find(([value]) => value === inferredTarget)?.[0];
+    if (allowedTarget) {
+      setTargetType(allowedTarget);
+    } else {
+      const serviceText = `${row.name} ${providerCategory}`.toLowerCase();
+      const targetFromService = /video|livestream|live stream/.test(serviceText)
+        ? "video_url"
+        : /\bpost\b|tweet|upvote|downvote|repin|repost/.test(serviceText)
+        ? "post_url"
+        : /\bchannel\b/.test(serviceText)
+        ? "channel"
+        : /\bpage\b/.test(serviceText)
+        ? "page"
+        : /\busername\b|@handle/.test(serviceText)
+        ? "username"
+        : "url";
+      setTargetType(targetFromService);
+    }
     setBrowseCatalog(false);
   }
 
@@ -736,6 +800,11 @@ export function CreateServiceCard({
                           color: "#fff",
                         }}
                       />
+                      {catalogError && (
+                        <p role="alert" style={{ margin: "0 0 10px", color: "#ff9dab", fontSize: "13px" }}>
+                          {catalogError}
+                        </p>
+                      )}
                       <div style={{ maxHeight: "200px", overflowY: "auto", display: "grid", gap: "6px" }}>
                         {catalogLoading ? (
                           <p style={{ color: "#a99bb2", textAlign: "center", padding: "12px" }}>
@@ -788,8 +857,12 @@ export function CreateServiceCard({
                         <strong>{selectedProviderRow.name} · ReliableSMM #{selectedProviderRow.provider_service_id}</strong>
                         <span>Provider rate: {formatProviderRate(selectedProviderRow.provider_rate, selectedProviderRow.provider_currency, selectedProviderRow.rate_unit)}</span>
                       </div>
-                      <span className={`create-eligibility ${selectedProviderRow.compatibility_state === "READY" ? "is-ready" : "is-review"}`}>
-                        {selectedProviderRow.compatibility_state === "READY" ? "Metadata compatible · server validates full eligibility" : "Eligibility requires review"}
+                      <span className={`create-eligibility ${providerOperationApproved ? "is-ready" : "is-review"}`}>
+                        {selectedProviderRow.compatibility_state !== "READY"
+                          ? `Provider metadata needs review: ${selectedProviderRow.compatibility_reason ?? "required details are missing."}`
+                          : providerOperationApproved
+                          ? "Provider operation approved · server checks the remaining eligibility requirements"
+                          : `Metadata is compatible, but provider #${selectedProviderRow.provider_service_id} is not approved for this service. Mapping is blocked pending manual review.`}
                       </span>
                     </header>
                     {selectedProviderRow.rate_unit !== "PER_1000" && selectedProviderRow.rate_unit !== "PER_ORDER" ? (

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { DeleteConfirmationCard } from "./DeleteConfirmationCard";
 
 export function DeleteServiceButton({
   serviceId,
@@ -12,53 +13,70 @@ export function DeleteServiceButton({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   async function handleDelete() {
-    if (!window.confirm(`Are you sure you want to delete "${serviceName}"? This cannot be undone.`)) {
-      return;
-    }
-
     setBusy(true);
+    setError(null);
+    setMessage(null);
     try {
       const res = await fetch(`/api/admin/services/${serviceId}`, {
         method: "DELETE",
       });
-      const data = await res.json();
+      const data: unknown = await res.json().catch(() => null);
+      const result = data && typeof data === "object" && !Array.isArray(data)
+        ? data as Record<string, unknown>
+        : {};
       if (!res.ok) {
-        alert(data.error || "Failed to delete service.");
+        setError(typeof result.error === "string" ? result.error : "Failed to delete service.");
         return;
       }
-      if (data.deactivated) {
-        alert(data.message);
+      if (result.deactivated) {
+        setConfirming(false);
+        setMessage(typeof result.message === "string" ? result.message : "The service was deactivated.");
+      } else {
+        setConfirming(false);
       }
       router.refresh();
-    } catch {
-      alert("Error deleting service.");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Error deleting service. Check your connection and try again.");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleDelete}
-      disabled={busy}
-      title="Delete service"
-      style={{
-        background: "#321520",
-        border: "1px solid #6b2639",
-        color: "#ff9dab",
-        padding: "8px 12px",
-        borderRadius: "8px",
-        fontSize: "12px",
-        fontWeight: 700,
-        cursor: busy ? "not-allowed" : "pointer",
-        opacity: busy ? 0.5 : 1,
-        transition: "all 0.15s ease",
-      }}
-    >
-      {busy ? "Deleting…" : "Delete"}
-    </button>
+    <div className="admin-delete-control">
+      <button
+        type="button"
+        onClick={() => {
+          setError(null);
+          setMessage(null);
+          setConfirming(true);
+        }}
+        disabled={busy}
+        title="Delete service"
+        className="admin-delete-service"
+        aria-expanded={confirming}
+      >
+        Delete
+      </button>
+      {confirming && (
+        <DeleteConfirmationCard
+          title={`Delete ${serviceName}?`}
+          description="This removes the service from the catalog if it has no protected history or configuration."
+          warning="Services with order history, provider mappings, pricing history, or configured inputs are deactivated instead of permanently deleted."
+          confirmLabel="Delete service"
+          busyLabel="Deleting…"
+          busy={busy}
+          error={error}
+          onCancel={() => setConfirming(false)}
+          onConfirm={handleDelete}
+        />
+      )}
+      {message && <p className="admin-delete-result" role="status">{message}</p>}
+    </div>
   );
 }

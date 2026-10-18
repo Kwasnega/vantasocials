@@ -17,7 +17,6 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
       <Suspense fallback={null}><RedirectAuthenticatedUser next={next} /></Suspense>
       <Suspense><SignupForm /></Suspense>
       <p className="login-signup">Already have an account? <Link href="/login">Log in</Link></p>
-      <p className="login-legal">By creating an account, you agree to VANTA’s <Link href="/terms">terms</Link> and <Link href="/privacy-policy">privacy policy</Link>.</p>
     </section>
   </main>;
 }

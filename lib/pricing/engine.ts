@@ -65,14 +65,26 @@ export function normalizeProviderPricingValue(value: string, allowZero = true): 
   return format(parsed);
 }
 
+function expandScientificNotation(value: string): string {
+  const match = /^(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(value);
+  if (!match) return value;
+  const [, whole, fraction = "", exponentText] = match;
+  const digits = whole + fraction;
+  const decimalPosition = whole.length + Number(exponentText);
+  if (decimalPosition <= 0) return `0.${"0".repeat(-decimalPosition)}${digits}`;
+  if (decimalPosition >= digits.length) return `${digits}${"0".repeat(decimalPosition - digits.length)}`;
+  return `${digits.slice(0, decimalPosition)}.${digits.slice(decimalPosition)}`;
+}
+
 export function normalizePricingValue(value: string | number, allowZero = true): string {
   if (typeof value === "string") return normalizeProviderPricingValue(value, allowZero);
   if (!Number.isFinite(value) || value < 0) throw new Error("Pricing value must be a finite non-negative number.");
-  const scaledValue = value * Number(SCALE);
-  if (!Number.isSafeInteger(scaledValue) || Number(format(BigInt(scaledValue))) !== value) {
+  const decimalValue = expandScientificNotation(String(value));
+  const fraction = decimalValue.split(".")[1] ?? "";
+  if (fraction.replace(/0+$/, "").length > PRECISION) {
     throw new Error("Numeric pricing value cannot be represented exactly at the supported precision.");
   }
-  return normalizeProviderPricingValue(format(BigInt(scaledValue)), allowZero);
+  return normalizeProviderPricingValue(decimalValue, allowZero);
 }
 
 export function formatGhsAmount(value: string): string {

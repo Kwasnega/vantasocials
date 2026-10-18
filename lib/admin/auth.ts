@@ -11,6 +11,7 @@ export const requireAdmin = cache(async () => {
     .select("is_admin")
     .eq("id", user.id)
     .maybeSingle();
-  if (error || !data?.is_admin) return { user, admin: null } as const;
+  if (error) throw new Error("Unable to verify admin access.", { cause: error });
+  if (!data?.is_admin) return { user, admin: null } as const;
   return { user, admin: { id: user.id } } as const;
 });

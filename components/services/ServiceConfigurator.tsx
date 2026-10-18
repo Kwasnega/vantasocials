@@ -6,11 +6,16 @@ import type { CatalogService } from "../../lib/catalog/services";
 import type { CustomerInputField } from "../../lib/customer/service-contract";
 import { getFieldControlType, validateCustomerInputValue } from "../../lib/customer/service-contract";
 import { getTargetContract } from "../../lib/targets/contracts";
-import { calculateCustomerTotal } from "../../lib/pricing/customer-price";
+import { calculateCustomerTotal, unitRateToAdminPricePer1000 } from "../../lib/pricing/customer-price";
 
 type StoredOrderIntent = { key: string; fingerprint: string };
 const orderIntentStorageKey = (serviceId: string) => `vanta:order-creation-intent:${serviceId}`;
 const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function formatCustomerRate(unitRate: string) {
+  const [whole, fraction = ""] = unitRateToAdminPricePer1000(unitRate).split(".");
+  return `${whole}.${fraction.padEnd(2, "0")}`;
+}
 
 export function ServiceConfigurator({ service, platform }: { service: CatalogService & { inputFields?: CustomerInputField[] }; platform?: string }) {
   const router = useRouter();
@@ -229,6 +234,7 @@ export function ServiceConfigurator({ service, platform }: { service: CatalogSer
       <div className="order-form-kicker">ORDER DETAILS</div>
       <h2>{service.name}</h2>
       <p className="order-form-intro">{isDynamic ? `Provide the requested details for this ${platform ?? "VANTA"} order.` : `Set the target and quantity for this ${platform ?? "VANTA"} service.`}</p>
+      <div className="order-form-rate"><span>Rate per 1,000</span><strong>{service.currency} {formatCustomerRate(service.selling_rate)}</strong></div>
       {isDynamic ? renderDynamicFields() : <div className="configurator">
         <label>{label}<input value={target} onChange={(event) => { beginDifferentOrderIntent(); setTarget(event.target.value); }} placeholder={placeholder} /></label>
         <label>Quantity<input type="text" inputMode="numeric" value={quantityInput} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value.replace(/[^0-9]/g, "")); setError(""); }} onBlur={() => { if (quantityInput && !quantityValid) setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`); }} aria-invalid={Boolean(quantityInput) && !quantityValid} /></label>

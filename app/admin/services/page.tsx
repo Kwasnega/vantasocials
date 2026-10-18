@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "../../../lib/supabase/server";
 import { MappingControl } from "./MappingControl";
 import { CreateServiceCard, type AdminPlatform } from "./CreateServiceCard";
 import { DeleteServiceButton } from "./DeleteServiceButton";
+import { DeletePlatformButton } from "./DeletePlatformButton";
 import { getPlatformLogoUrl } from "../../../lib/catalog/logo";
 import { AdminEmptyState, AdminQueryError } from "../AdminDataState";
 import { unitRateToAdminPricePer1000 } from "../../../lib/pricing/customer-price";
@@ -319,16 +320,6 @@ export default async function AdminServicesPage() {
 
           return (
             <div className="service-category-item" key={platform.id}>
-              <CreateServiceCard
-                platforms={platformsWithCounts}
-                defaultPlatformId={platform.id}
-                triggerLabel={`Add ${platform.name} service`}
-                triggerClassName="service-add-platform"
-                fxRate={fxRate}
-                fxError={fxError}
-                fxUpdatedAt={fxUpdatedAt}
-                fxSource={fxSource}
-              />
               <details
                 className="service-category"
                 name="service-category"
@@ -348,6 +339,23 @@ export default async function AdminServicesPage() {
                   </span>
                   <span className="service-category-chevron" aria-hidden="true">⌄</span>
                 </summary>
+                <div className="service-category-actions" aria-label={`${platform.name} platform actions`}>
+                  <CreateServiceCard
+                    platforms={platformsWithCounts}
+                    defaultPlatformId={platform.id}
+                    triggerLabel={`Add ${platform.name} service`}
+                    triggerClassName="service-add-platform"
+                    fxRate={fxRate}
+                    fxError={fxError}
+                    fxUpdatedAt={fxUpdatedAt}
+                    fxSource={fxSource}
+                  />
+                  <DeletePlatformButton
+                    platformId={platform.id}
+                    platformName={platform.name}
+                    servicesCount={platform.servicesCount ?? 0}
+                  />
+                </div>
                 <div className="dashboard-card service-category-card">
                   <ServiceTable services={platformServices} fxRate={fxRate} fxError={fxError} fxUpdatedAt={fxUpdatedAt} fxSource={fxSource} />
                 </div>

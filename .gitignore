@@ -2,6 +2,7 @@ node_modules/
 .npm-cache/
 supabase/.temp/
 .next/
+.next-dev/
 dev-server.log
 .env.local
 .env.*.local

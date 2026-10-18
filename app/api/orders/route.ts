@@ -4,7 +4,7 @@ import { createSupabaseAdminClient, getCurrentUser } from "../../../lib/supabase
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../lib/security/rate-limit";
 import { validateDynamicFieldValues, validateDynamicOrderInput } from "../../../lib/orders/dynamic-input-validation";
 import type { CustomerInputField } from "../../../lib/customer/service-contract";
-import { normalizeTarget, getTargetContract } from "../../../lib/targets/contracts";
+import { normalizeTarget, normalizeTargetForService, getTargetContract, getTargetContractForService } from "../../../lib/targets/contracts";
 import { effectiveQuantityRange, quantityInRange } from "../../../lib/targets/quantity";
 import { assertPayableOrderTotal, calculateCustomerTotal, normalizeInternalUnitRate } from "../../../lib/pricing/customer-price";
 import { captureServerEvent } from "../../../lib/posthog/server";
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
 
     const { data: service, error: serviceError } = await admin
       .from("services")
-      .select("id,slug,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active,provider,provider_service_id")
+      .select("id,slug,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active,provider,provider_service_id,platforms(id,active,slug)")
       .eq("id", serviceId)
       .maybeSingle();
 
@@ -129,32 +129,42 @@ export async function POST(request: Request) {
     if (!service) return NextResponse.json({ error: "Service not found." }, { status: 404 });
     if (!service.active) return NextResponse.json({ error: "Service is not available." }, { status: 409 });
 
-    const { data: platform, error: platformError } = await admin.from("platforms").select("id,active").eq("id", service.platform_id).maybeSingle();
-    if (platformError) throw platformError;
+    const platform = Array.isArray(service.platforms) ? service.platforms[0] : service.platforms;
     if (!platform || !platform.active) return NextResponse.json({ error: "Service is not available." }, { status: 409 });
 
+    const isReliableSmm = service.provider === "reliablesmm" && Boolean(service.provider_service_id);
+    const [providerCatalogResult, dynamicFieldsResult] = await Promise.all([
+      isReliableSmm
+        ? admin
+            .from("provider_catalog_services")
+            .select("provider_status,min_quantity,max_quantity")
+            .eq("provider", "reliablesmm")
+            .eq("provider_service_id", service.provider_service_id!)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      admin
+        .from("service_input_fields")
+        .select("id,key,label,input_type,required,display_order,placeholder,help_text,validation_config,active,schema_version")
+        .eq("service_id", service.id)
+        .eq("active", true)
+        .order("display_order", { ascending: true })
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (providerCatalogResult.error) throw providerCatalogResult.error;
+    if (dynamicFieldsResult.error) throw dynamicFieldsResult.error;
+
     let quantityRange = effectiveQuantityRange(service.min_quantity, service.max_quantity);
-    if (service.provider === "reliablesmm" && service.provider_service_id) {
-      const { data: providerCatalog, error: providerCatalogError } = await admin
-        .from("provider_catalog_services")
-        .select("provider_status,min_quantity,max_quantity")
-        .eq("provider", "reliablesmm")
-        .eq("provider_service_id", service.provider_service_id)
-        .maybeSingle();
-      if (providerCatalogError) throw providerCatalogError;
-      if (providerCatalog?.provider_status === "ACTIVE") {
-        quantityRange = effectiveQuantityRange(service.min_quantity, service.max_quantity, providerCatalog.min_quantity, providerCatalog.max_quantity);
-      }
+    if (providerCatalogResult.data?.provider_status === "ACTIVE") {
+      quantityRange = effectiveQuantityRange(
+        service.min_quantity,
+        service.max_quantity,
+        providerCatalogResult.data.min_quantity,
+        providerCatalogResult.data.max_quantity,
+      );
     }
 
-    const { data: activeDynamicFields, error: dynamicFieldsError } = await admin
-      .from("service_input_fields")
-      .select("id,key,label,input_type,required,display_order,placeholder,help_text,validation_config,active,schema_version")
-      .eq("service_id", service.id)
-      .eq("active", true)
-      .order("display_order", { ascending: true })
-      .order("created_at", { ascending: true });
-    if (dynamicFieldsError) throw dynamicFieldsError;
+    const activeDynamicFields = dynamicFieldsResult.data;
     const hasDynamicFields = (activeDynamicFields ?? []).length > 0;
 
     let dynamicValidation:
@@ -170,8 +180,20 @@ export async function POST(request: Request) {
       }
     } else {
       if (!targetValue) return NextResponse.json({ error: "target_value and integer quantity are required for legacy services." }, { status: 400 });
-      const contract = getTargetContract(service.slug);
-      const result = contract ? normalizeTarget(service.slug, targetValue) : { valid: true as const, target: targetValue.trim() };
+      const servicePlatform = Array.isArray(service.platforms) ? service.platforms[0] : service.platforms;
+      const contract = getTargetContract(service.slug) ?? getTargetContractForService({
+        slug: service.slug,
+        platformSlug: servicePlatform?.slug,
+        targetType: service.target_type,
+      });
+      const result = contract
+        ? normalizeTargetForService({
+            slug: service.slug,
+            platformSlug: servicePlatform?.slug,
+            targetType: service.target_type,
+            value: targetValue,
+          })
+        : { valid: true as const, target: targetValue.trim() };
       if (!result.valid) return NextResponse.json({ error: result.reason }, { status: 400 });
       if (!quantityInRange(quantity, quantityRange)) {
         return NextResponse.json({ error: `Quantity must be between ${quantityRange.min} and ${quantityRange.max}.` }, { status: 400 });

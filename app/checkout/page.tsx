@@ -52,7 +52,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
   const platformLogo = checkoutOrder.platform_slug ? getPlatformLogoUrl(checkoutOrder.platform_slug) : null;
 
   return (
-    <main className="checkout-shell">
+    <main className={`checkout-shell${payable ? " checkout-shell-payable" : ""}`}>
       {/* Checkout Navigation Topbar */}
       <header className="checkout-topbar">
         <div className="checkout-topbar-left">
@@ -76,9 +76,9 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
       <div className="checkout-container">
         <header className="checkout-header-hero">
           <p className="checkout-kicker">STEP 2 OF 2 · ORDER REVIEW</p>
-          <h1>Review &amp; Complete Order</h1>
+          <h1>Review your order</h1>
           <p className="checkout-subtitle">
-            Verify the order parameters below before continuing to instant fulfillment.
+            Confirm the details and choose how to pay.
           </p>
         </header>
 
@@ -186,30 +186,6 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
                 </div>
               </div>
 
-              {/* Guarantees & Reassurance Cards */}
-              <div className="checkout-guarantees-grid">
-                <div className="checkout-guarantee-card">
-                  <span className="guarantee-icon">⚡</span>
-                  <div>
-                    <strong>Instant Automated Delivery</strong>
-                    <p>Fulfillment dispatch begins automatically once payment is verified.</p>
-                  </div>
-                </div>
-                <div className="checkout-guarantee-card">
-                  <span className="guarantee-icon">🛡️</span>
-                  <div>
-                    <strong>Money-Back Guarantee</strong>
-                    <p>Qualifying orders are backed by automated wallet refunds if undeliverable.</p>
-                  </div>
-                </div>
-                <div className="checkout-guarantee-card">
-                  <span className="guarantee-icon">🔒</span>
-                  <div>
-                    <strong>No Password Ever Required</strong>
-                    <p>We only deliver to public handles or URLs. Your social credentials stay private.</p>
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Right Column: Payment Method & Action */}
@@ -225,19 +201,20 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
                   balanceMinor={checkoutOrder.wallet_balance_minor}
                   totalAmount={checkoutOrder.total}
                   currency={checkoutOrder.currency}
+                  support={
+                    <div className="checkout-support-card">
+                      <p>
+                        Need assistance with this order? Our support team is here to help at{" "}
+                        <a href="mailto:vantasocials62@gmail.com">vantasocials62@gmail.com</a>.
+                      </p>
+                      <p className="checkout-legal-links">
+                        By continuing, you agree to our <Link href="/terms">Terms</Link>,{" "}
+                        <Link href="/refund-policy">Refund Policy</Link>, and{" "}
+                        <Link href="/privacy-policy">Privacy Policy</Link>.
+                      </p>
+                    </div>
+                  }
                 />
-              </div>
-
-              <div className="checkout-support-card">
-                <p>
-                  Need assistance with this order? Our support team is here to help at{" "}
-                  <a href="mailto:vantasocials62@gmail.com">vantasocials62@gmail.com</a>.
-                </p>
-                <p className="checkout-legal-links">
-                  By continuing, you agree to our <Link href="/terms">Terms</Link>,{" "}
-                  <Link href="/refund-policy">Refund Policy</Link>, and{" "}
-                  <Link href="/privacy-policy">Privacy Policy</Link>.
-                </p>
               </div>
             </div>
           </div>

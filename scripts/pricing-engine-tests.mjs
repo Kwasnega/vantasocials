@@ -273,6 +273,8 @@ assert.equal(tinyRate.providerCostGhs, "0.000010911111");
 assert.equal(tinyRate.grossProfitGhs, "4.999989088889");
 assert.equal(normalizeProviderPricingValue("0.0000009"), "0.0000009");
 assert.equal(normalizePricingValue(12.123456789012), "12.123456789012");
+assert.equal(normalizePricingValue(0.2664), "0.2664");
+assert.equal(normalizePricingValue(1e-7), "0.0000001");
 assert.equal(formatGhsAmount(tinyRate.providerCostGhs), "0.00");
 assert.equal(formatGhsAmount("-25"), "-25.00");
 assert.throws(() => normalizeProviderPricingValue("1.1234567890123"), /precision/);

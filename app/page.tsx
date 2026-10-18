@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ServicesShowcase } from "../components/home/ServicesShowcase";
+import { BenefitIllustration } from "../components/home/BenefitIllustration";
 
 type PlatformId = "instagram" | "tiktok" | "youtube" | "facebook" | "x" | "telegram";
 type Service = { name: string; targetType: "username" | "url" | "channel" | "page" };
@@ -169,9 +170,9 @@ export default function Home() {
     <section className="momentum" aria-labelledby="momentum-heading">
       <header><p className="section-kicker">THE VANTA DIFFERENCE</p><h2 id="momentum-heading">Stop waiting.<br />Start moving.</h2><p>Strong content deserves a stronger start. VANTA makes it simple to choose the support that helps your next post, profile, or video find momentum.</p><p>Set the target, select the quantity, and move forward with a clear order flow—without handing over your password.</p><h3>Three ways VANTA keeps you moving</h3></header>
       <div className="benefit-grid">
-        <article><div className="benefit-art magenta-art"><img src="https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&amp;fit=crop&amp;w=1200&amp;q=85" alt="" /></div><h3>Boost your visibility</h3><p>Give the content you care about a purposeful initial push with a service built for the platform.</p></article>
-        <article><div className="benefit-art violet-art"><img src="https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&amp;fit=crop&amp;w=1200&amp;q=85" alt="" /></div><h3>Build confidence</h3><p>A stronger starting point helps your profile and content make a clearer first impression.</p></article>
-        <article><div className="benefit-art blue-art"><img src="https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&amp;fit=crop&amp;w=1200&amp;q=85" alt="" /></div><h3>Keep it simple</h3><p>Choose a service, enter your target, and check out with a focused, uncomplicated experience.</p></article>
+        <article><div className="benefit-art magenta-art"><BenefitIllustration kind="visibility" /></div><h3>Boost your visibility</h3><p>Give the content you care about a purposeful initial push with a service built for the platform.</p></article>
+        <article><div className="benefit-art violet-art"><BenefitIllustration kind="confidence" /></div><h3>Build confidence</h3><p>A stronger starting point helps your profile and content make a clearer first impression.</p></article>
+        <article><div className="benefit-art blue-art"><BenefitIllustration kind="simple" /></div><h3>Keep it simple</h3><p>Choose a service, enter your target, and check out with a focused, uncomplicated experience.</p></article>
       </div>
     </section>
 

@@ -47,6 +47,8 @@ assert.deepEqual(
 );
 assert.equal(adminPricePer1000ToUnitRate("0.001"), "0.000001", "three admin decimals fit six-decimal per-unit storage exactly");
 assert.equal(adminPricePer1000ToUnitRate("999999999999999.999"), "999999999999.999999");
+assert.equal(unitRateToAdminPricePer1000(adminPricePer1000ToUnitRate("12.345")), "12.345", "catalog cards can display the exact admin-set per-1,000 price");
+assert.equal(calculateCustomerTotal(adminPricePer1000ToUnitRate("12.345"), 1000), "12.35", "order totals are rounded to currency precision independently from the listed rate");
 assert.throws(() => adminPricePer1000ToUnitRate("1.0001"), /at most 3 decimal places/);
 assert.throws(() => adminPricePer1000ToUnitRate("-1"), /non-negative decimal/);
 assert.throws(() => adminPricePer1000ToUnitRate("Infinity"), /non-negative decimal/);
@@ -70,13 +72,23 @@ assert.throws(() => normalizeInternalUnitRate(10000000000), /represented exactly
   const query = {
     select() { return this; },
     order() { return this; },
+    in() { return this; },
     eq() { return this; },
     async maybeSingle() { return { data: rows[0], error: null }; },
     then(resolve, reject) { return Promise.resolve({ data: rows, error: null }).then(resolve, reject); },
   };
+  const platformsQuery = {
+    select() { return this; },
+    eq() { return this; },
+    then(resolve, reject) { return Promise.resolve({ data: [{ id: "p1", slug: "test" }], error: null }).then(resolve, reject); },
+  };
   const catalogServices = loadTypeScript(catalogServicesSource, {
     "server-only": {},
-    "../supabase/server": { createSupabaseServerClient: async () => ({ from: () => query }) },
+    "../supabase/server": {
+      createSupabaseServerClient: async () => ({
+        from(table) { return table === "platforms" ? platformsQuery : query; },
+      }),
+    },
     "../pricing/customer-price": customerPricing,
   });
   const services = await catalogServices.getServices();
@@ -173,7 +185,8 @@ assert.match(patchApi, /adminPricePer1000ToUnitRate\(sellingPricePer1000\)/);
 assert.match(patchApi, /\.update\(\{ selling_rate: sellingRatePerUnit \}\)/);
 assert.match(previewApi, /adminPricePer1000ToUnitRate\(sellingPricePer1000\)/);
 assert.match(configurator, /calculateCustomerTotal\(service\.selling_rate, quantity\)/);
-assert.match(publicCatalog, /calculateCustomerTotal\(service\.selling_rate, 1000\)/);
+assert.match(publicCatalog, /unitRateToAdminPricePer1000\(unitRate\)/);
+assert.match(publicCatalog, /formatCatalogPrice\(service\.selling_rate\)/);
 assert.match(orderApi, /normalizeInternalUnitRate\(service\.selling_rate\)/);
 assert.match(orderApi, /calculateCustomerTotal\(unitPrice, quantity\)/);
 assert.match(orderApi, /assertPayableOrderTotal\(subtotal\)/);

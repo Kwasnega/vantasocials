@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, createSupabaseAdminClient } from "../../../../../lib/supabase/server";
-import { amountToMinorUnits, initializeWalletPaystack } from "../../../../../lib/payments/paystack";
+import { amountToMinorUnits, initializeWalletPaystack, PaystackApiError } from "../../../../../lib/payments/paystack";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../../lib/security/rate-limit";
 import { captureServerEvent } from "../../../../../lib/posthog/server";
 
@@ -57,6 +57,21 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({ authorization_url: data.authorization_url, access_code: typeof data.access_code === "string" ? data.access_code : undefined, reference });
     } catch (error) {
+      if (error instanceof PaystackApiError && error.status >= 400 && error.status < 500) {
+        const { error: updateError } = await admin
+          .from("wallet_deposit_payments")
+          .update({
+            status: "FAILED",
+            provider_response: { initialization_error: error.message, provider_http_status: error.status },
+          })
+          .eq("id", deposit.id)
+          .eq("status", "INITIALIZING");
+        if (updateError) throw updateError;
+        return NextResponse.json({
+          error: `Paystack could not start checkout: ${error.message}`,
+          retryable: true,
+        }, { status: 502 });
+      }
       await admin.from("wallet_deposit_payments").update({ provider_response: { initialization_ambiguous: true } }).eq("id", deposit.id).eq("status", "INITIALIZING");
       throw error;
     }

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../../lib/supabase/server";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
 import { assertPayableOrderTotal } from "../../../../lib/pricing/customer-price";
@@ -44,16 +44,17 @@ export async function POST(request: Request) {
       throw debitError;
     }
 
-    const { data: paidOrder, error: paidOrderError } = await admin.from("orders")
-      .select("id,public_order_id,status,payment_status,fulfillment_status,total,currency")
-      .eq("id", order.id)
-      .single();
-    if (paidOrderError) throw paidOrderError;
-    await captureServerEvent(user.id, "wallet_payment_completed", {
-      total: paidOrder.total,
-      currency: paidOrder.currency,
+    after(() => captureServerEvent(user.id, "wallet_payment_completed", {
+      total: order.total,
+      currency: order.currency,
+    }));
+    return NextResponse.json({
+      order: {
+        public_order_id: order.public_order_id,
+        payment_status: "PAID",
+      },
+      debit_id: debit?.id ?? null,
     });
-    return NextResponse.json({ order: paidOrder, debit_id: debit?.id ?? null });
   } catch (error) {
     console.error("Wallet order payment failed", error instanceof Error ? JSON.stringify({ name: error.name, message: error.message, stack: error.stack }) : JSON.stringify(error));
     return NextResponse.json({ error: "Unable to pay order from wallet." }, { status: 502 });

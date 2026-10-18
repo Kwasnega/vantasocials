@@ -2,24 +2,251 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { formatOrderInputValue } from "../../../../lib/orders/display-input-values";
+import { buildOrderTimeline, formatOrderTimelineStatus } from "../../../../lib/orders/timeline";
+
+function getPaymentDescription(status: string) {
+  switch (status) {
+    case "PAID":
+      return "Your order total has been received.";
+    case "UNPAID":
+      return "Payment is still needed before fulfillment can begin.";
+    case "PENDING":
+      return "We’re waiting for the payment provider to confirm this transaction.";
+    case "FAILED":
+      return "The payment attempt was unsuccessful. Contact support if this doesn’t look right.";
+    case "REFUNDED":
+      return "The payment for this order has been refunded.";
+    case "PARTIALLY_REFUNDED":
+      return "Part of the payment for this order has been refunded.";
+    default:
+      return "Check back here for payment updates.";
+  }
+}
+
+function getFulfillmentDescription(status: string, paid: boolean) {
+  switch (status) {
+    case "NOT_STARTED":
+      return paid
+        ? "Payment is confirmed. Your order is waiting to be picked up for fulfillment."
+        : "Fulfillment will begin after payment is confirmed.";
+    case "SUBMITTING":
+      return "Your order is being sent to the fulfillment provider.";
+    case "SUBMITTED":
+    case "PROCESSING":
+      return "Your order is in progress.";
+    case "COMPLETED":
+      return "Your order has been completed.";
+    case "PARTIAL":
+      return "Some, but not all, of the requested order has been completed.";
+    case "FAILED":
+      return "The order could not be completed. Contact support for help.";
+    case "CANCELLED":
+      return "This order has been cancelled.";
+    default:
+      return "Check back here for fulfillment updates.";
+  }
+}
 
 export default async function AccountOrderDetail({ params }: { params: Promise<{ id: string }> }) {
   const { user, db } = await requireUser("/account/orders");
   const { id } = await params;
   const { data: order, error } = await db.from("orders")
-    .select("public_order_id,target_type,target_value,quantity,unit_price,total,currency,status,payment_status,fulfillment_status,created_at,updated_at,input_values,services(name,platforms(name))")
+    .select("id,public_order_id,target_type,target_value,quantity,unit_price,total,currency,status,payment_status,fulfillment_status,created_at,updated_at,input_values,services(name,platforms(name))")
     .eq("public_order_id", id)
     .eq("user_id", user.id)
     .maybeSingle();
   if (error) throw error;
   if (!order) notFound();
+
   const paid = order.payment_status === "PAID";
-  const processing = ["SUBMITTING", "SUBMITTED", "PROCESSING"].includes(order.fulfillment_status);
-  const completed = ["COMPLETED", "PARTIAL"].includes(order.fulfillment_status);
-  const failed = ["FAILED", "CANCELLED"].includes(order.fulfillment_status);
   const service = order.services as { name?: string; platforms?: { name?: string } | null } | null;
+  const [
+    { data: payments, error: paymentsError },
+    { data: walletTransactions, error: walletTransactionsError },
+    { data: providerAttempts, error: providerAttemptsError },
+    { data: orderProviderEvents, error: orderProviderEventsError },
+  ] = await Promise.all([
+    db.from("payments")
+      .select("id,provider,status,created_at,paid_at,updated_at")
+      .eq("order_id", order.id)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true })
+      .limit(50),
+    db.from("wallet_transactions")
+      .select("id,type,direction,status,created_at,updated_at")
+      .eq("order_id", order.id)
+      .order("created_at", { ascending: true })
+      .limit(50),
+    db.from("provider_orders")
+      .select("id,attempt_number,attempt_status,request_started_at,response_received_at,created_at")
+      .eq("order_id", order.id)
+      .order("created_at", { ascending: true })
+      .limit(50),
+    db.from("provider_order_events")
+      .select("id,provider_order_id,event_type,provider_status,metadata,created_at")
+      .eq("order_id", order.id)
+      .order("created_at", { ascending: false })
+      .limit(100),
+  ]);
+  if (paymentsError) throw paymentsError;
+  if (walletTransactionsError) throw walletTransactionsError;
+  if (providerAttemptsError) throw providerAttemptsError;
+  if (orderProviderEventsError) throw orderProviderEventsError;
+
+  const providerAttemptIds = (providerAttempts ?? []).map((attempt) => attempt.id);
+  let attemptProviderEvents: typeof orderProviderEvents = [];
+  if (providerAttemptIds.length > 0) {
+    const { data, error: attemptProviderEventsError } = await db.from("provider_order_events")
+      .select("id,provider_order_id,event_type,provider_status,metadata,created_at")
+      .in("provider_order_id", providerAttemptIds)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (attemptProviderEventsError) throw attemptProviderEventsError;
+    attemptProviderEvents = data ?? [];
+  }
+
+  const timeline = buildOrderTimeline({
+    orderId: order.id,
+    createdAt: order.created_at,
+    payments: payments ?? [],
+    walletTransactions: walletTransactions ?? [],
+    providerAttempts: providerAttempts ?? [],
+    providerEvents: [...(orderProviderEvents ?? []), ...attemptProviderEvents],
+  });
   const inputValues = order.input_values && typeof order.input_values === "object" && !Array.isArray(order.input_values)
     ? Object.entries(order.input_values as Record<string, unknown>)
     : [];
-  return <><header className="dashboard-header"><p className="dashboard-kicker">ORDER DETAIL</p><h1>{order.public_order_id}</h1><p>{service?.platforms?.name ?? "Platform"} · {service?.name ?? "VANTA service"}</p></header><div className="dashboard-card detail-grid">{inputValues.length === 0 ? <div><span>Target</span><strong>{order.target_value}</strong></div> : inputValues.map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><strong className="order-input-value">{formatOrderInputValue(value)}</strong></div>)}<div><span>Quantity</span><strong>{order.quantity}</strong></div><div><span>Unit price</span><strong>{order.unit_price} {order.currency}</strong></div><div><span>Total</span><strong>{order.total} {order.currency}</strong></div><div><span>Payment</span><strong>{order.payment_status}</strong></div><div><span>Fulfillment</span><strong>{order.fulfillment_status}</strong></div><div><span>Created</span><strong>{new Date(order.created_at).toLocaleString()}</strong></div><div><span>Updated</span><strong>{new Date(order.updated_at).toLocaleString()}</strong></div></div><div className="dashboard-card"><h2>Timeline</h2><ul className="dashboard-list"><li><span>Created</span><span>{new Date(order.created_at).toLocaleString()}</span></li>{order.payment_status !== "UNPAID" && <li><span>Payment {paid ? "paid" : order.payment_status.toLowerCase()}</span><span>{new Date(order.updated_at).toLocaleString()}</span></li>}{processing && <li><span>Processing</span><span>Current state</span></li>}{completed && <li><span>{order.fulfillment_status === "PARTIAL" ? "Partially completed" : "Completed"}</span><span>Current state</span></li>}{failed && <li><span>{order.fulfillment_status === "CANCELLED" ? "Cancelled" : "Failed"}</span><span>Current state</span></li>}</ul></div><Link href="/account/orders">Back to orders</Link></>;
+  const paymentLabel = formatOrderTimelineStatus(order.payment_status);
+  const fulfillmentLabel = formatOrderTimelineStatus(order.fulfillment_status);
+
+  return (
+    <div className="order-detail-page">
+      <Link className="order-detail-back" href="/account/orders">
+        <span aria-hidden="true">←</span> All orders
+      </Link>
+
+      <header className="order-detail-header">
+        <p className="dashboard-kicker">ORDER DETAILS</p>
+        <div className="order-detail-title-row">
+          <h1>{order.public_order_id}</h1>
+          <span className={`order-detail-payment-chip ${order.payment_status.toLowerCase().replaceAll("_", "-")}`}>
+            <i aria-hidden="true" />
+            {paymentLabel}
+          </span>
+        </div>
+        <p className="order-detail-service">
+          <span>{service?.platforms?.name ?? "Platform"}</span>
+          <b aria-hidden="true">/</b>
+          <span>{service?.name ?? "VANTA service"}</span>
+        </p>
+      </header>
+
+      <section className="order-detail-summary" aria-label="Order status summary">
+        <div className="order-detail-total">
+          <span>ORDER TOTAL</span>
+          <strong>{order.total} <small>{order.currency}</small></strong>
+          <p>Quantity: {order.quantity.toLocaleString()}</p>
+        </div>
+        <div className="order-detail-statuses">
+          <article className={`order-detail-status-card payment-${order.payment_status.toLowerCase().replaceAll("_", "-")}`}>
+            <span className="order-detail-status-icon" aria-hidden="true">{paid ? "✓" : "¤"}</span>
+            <div>
+              <span className="order-detail-label">PAYMENT</span>
+              <h2>{paymentLabel}</h2>
+              <p>{getPaymentDescription(order.payment_status)}</p>
+            </div>
+          </article>
+          <article className={`order-detail-status-card fulfillment-${order.fulfillment_status.toLowerCase().replaceAll("_", "-")}`}>
+            <span className="order-detail-status-icon" aria-hidden="true">
+              {order.fulfillment_status === "COMPLETED" ? "✓" : "→"}
+            </span>
+            <div>
+              <span className="order-detail-label">FULFILLMENT</span>
+              <h2>{fulfillmentLabel}</h2>
+              <p>{getFulfillmentDescription(order.fulfillment_status, paid)}</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section className="order-detail-panel" aria-labelledby="order-information-title">
+        <div className="order-detail-panel-heading">
+          <div>
+            <span className="order-detail-label">YOUR REQUEST</span>
+            <h2 id="order-information-title">Order information</h2>
+          </div>
+        </div>
+        <dl className="order-detail-fields">
+          {inputValues.length === 0 ? (
+            <div className="order-detail-field order-detail-target">
+              <dt>Target</dt>
+              <dd>{order.target_value}</dd>
+            </div>
+          ) : (
+            inputValues.map(([key, value]) => (
+              <div className="order-detail-field order-detail-target" key={key}>
+                <dt>{key.replaceAll("_", " ")}</dt>
+                <dd className="order-input-value">{formatOrderInputValue(value)}</dd>
+              </div>
+            ))
+          )}
+          <div className="order-detail-field">
+            <dt>Quantity</dt>
+            <dd>{order.quantity.toLocaleString()}</dd>
+          </div>
+          <div className="order-detail-field">
+            <dt>Price per unit</dt>
+            <dd>{order.unit_price} {order.currency}</dd>
+          </div>
+          <div className="order-detail-field">
+            <dt>Order total</dt>
+            <dd>{order.total} {order.currency}</dd>
+          </div>
+          <div className="order-detail-field">
+            <dt>Order reference</dt>
+            <dd>{order.public_order_id}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="order-detail-panel order-detail-timeline" aria-labelledby="order-timeline-title">
+        <div className="order-detail-panel-heading">
+          <div>
+            <span className="order-detail-label">ORDER HISTORY</span>
+            <h2 id="order-timeline-title">Timeline</h2>
+          </div>
+          <span className="order-detail-timeline-current">
+            {timeline.length === 1
+              ? "No updates yet"
+              : timeline.length === 2
+                ? "1 recorded update"
+                : `${timeline.length - 1} recorded updates`}
+          </span>
+        </div>
+        <ol>
+          {timeline.map((event, index) => (
+            <li key={event.id}>
+              <span className={`order-detail-timeline-dot ${event.kind}${index === 0 ? " is-complete" : ""}`} aria-hidden="true">
+                {index === 0 ? "✓" : "•"}
+              </span>
+              <div>
+                <strong>{event.label}</strong>
+                {event.detail && <p>{event.detail}</p>}
+                <time dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time>
+              </div>
+            </li>
+          ))}
+        </ol>
+        {timeline.length === 1 && (
+          <p className="order-detail-timeline-empty">
+            No payment or fulfillment events have been recorded for this order yet. This history updates when new activity is saved.
+          </p>
+        )}
+      </section>
+
+      <Link className="order-detail-bottom-link" href="/account/orders">
+        <span aria-hidden="true">←</span> Back to all orders
+      </Link>
+    </div>
+  );
 }

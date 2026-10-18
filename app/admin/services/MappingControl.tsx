@@ -57,7 +57,7 @@ export function MappingControl({
   const [rows, setRows] = useState<Row[]>([]);
   const [selected, setSelected] = useState<Row | null>(null);
   const selectedIdentity = useRef<string | null>(null);
-  const [showBlocked, setShowBlocked] = useState(false);
+  const [showBlocked, setShowBlocked] = useState(true);
   const [candidateQuery, setCandidateQuery] = useState("");
   const [candidateLoadError, setCandidateLoadError] = useState(false);
   const [price, setPrice] = useState("");
@@ -233,6 +233,7 @@ export function MappingControl({
     <>
       <button
         type="button"
+        className="service-card-action"
         onClick={() => {
           setOpen(true);
           setStep(1);
@@ -313,7 +314,7 @@ export function MappingControl({
                         >
                           {showBlocked
                             ? "Hide incompatible services"
-                            : "Show all catalog matches anyway"}
+                            : "Show incompatible services"}
                         </button>
                       )}
                     </div>

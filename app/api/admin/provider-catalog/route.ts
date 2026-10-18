@@ -7,6 +7,7 @@ import { assessProviderEligibility } from "../../../../lib/targets/eligibility";
 import { getTargetContractForService } from "../../../../lib/targets/contracts";
 import { fetchAllProviderCatalogRows } from "../../../../lib/admin/provider-catalog-query";
 import {
+  detectPlatformFromText,
   matchesApprovedProviderOperation,
   resolveProviderCompatibility,
   sameProviderPlatform,
@@ -67,8 +68,25 @@ export async function GET(request: Request) {
 
     let enriched = rows.map((row) => {
       const compatibility = resolveProviderCompatibility(row.raw_metadata, row.name);
+      const metadata = row.raw_metadata && typeof row.raw_metadata === "object"
+        ? row.raw_metadata as Record<string, unknown>
+        : {};
+      const category = typeof metadata.category === "string" ? metadata.category : "";
+      const declaredPlatform = [
+        metadata.platform,
+        metadata.platform_name,
+        metadata.platformSlug,
+        metadata.platform_slug,
+        metadata.network,
+      ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+      const detectedPlatform = declaredPlatform
+        ? declaredPlatform.trim().toLowerCase()
+        : detectPlatformFromText(`${row.name} ${category}`);
+
       return {
         ...row,
+        category,
+        detected_platform: detectedPlatform,
         mapped_service: mappedById.get(String(row.provider_service_id)) ?? null,
         compatibility_state: compatibility.state,
         compatibility: compatibility.compatibility ?? null,
@@ -78,7 +96,7 @@ export async function GET(request: Request) {
 
     if (platformFilter) {
       enriched = enriched.filter((row) => {
-        const plat = row.compatibility?.platform?.toLowerCase();
+        const plat = row.detected_platform?.toLowerCase();
         return plat && sameProviderPlatform(plat, { slug: platformFilter, name: platformFilter });
       });
     }

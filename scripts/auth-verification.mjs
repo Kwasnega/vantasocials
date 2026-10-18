@@ -21,9 +21,10 @@ const assertions = [
   [read("components/auth/LogoutButton.tsx").includes("signOut"), "logout uses Supabase signOut"],
   [profileMigration.includes("after insert on auth.users") && profileMigration.includes("values (new.id"), "profile trigger uses auth user id"],
   [admin.includes("is_admin"), "admin authorization checks is_admin"],
+  [admin.includes('if (error) throw new Error("Unable to verify admin access."'), "admin profile lookup errors are not treated as missing permissions"],
   [catalog.includes("selling_rate") && !catalog.includes("provider_rate"), "public catalog excludes provider economics"],
   [accountOrders.includes("eq(\"user_id\", user.id)"), "customer order queries are user-scoped"],
-  [adminLayout.includes("requireAdmin"), "admin shell uses server-side admin authorization"],
+  [adminLayout.includes("requireAdmin") && adminLayout.includes("Admin access required") && !adminLayout.includes('redirect("/")'), "admin shell preserves authorization and explains denied access"],
 ];
 const failed = assertions.filter(([ok]) => !ok);
 if (failed.length) { console.error(`Auth verification failed: ${failed.map(([, label]) => label).join(", ")}`); process.exit(1); }

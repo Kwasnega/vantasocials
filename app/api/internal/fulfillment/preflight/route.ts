@@ -9,9 +9,8 @@ function authorized(request: NextRequest) {
 export async function GET(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const db = createSupabaseAdminClient();
-  const [{ count: providerOrders }, { data: orderStatuses }, { data: locks }, { data: activeAttempts }, { data: mapping }, { data: catalog }, { data: followersOrder }] = await Promise.all([
-    db.from("provider_orders").select("id", { count: "exact", head: true }),
-    db.from("provider_orders").select("status,attempt_status"),
+  const [{ data: orderStatuses, count: providerOrders }, { data: locks }, { data: activeAttempts }, { data: mapping }, { data: catalog }, { data: followersOrder }] = await Promise.all([
+    db.from("provider_orders").select("status,attempt_status", { count: "exact" }),
     db.from("provider_operation_locks").select("operation_key,acquired_at,expires_at"),
     db.from("provider_orders").select("id,attempt_status,submission_lease_expires_at,reconciliation_lease_expires_at").or("submission_lease_expires_at.not.is.null,reconciliation_lease_expires_at.not.is.null"),
     db.from("services").select("slug,provider,provider_service_id,active").eq("slug", "instagram-views").maybeSingle(),

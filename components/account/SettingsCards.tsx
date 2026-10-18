@@ -5,7 +5,7 @@ import Link from "next/link";
 export function SettingsCards({ email }: { email: string }) {
   const cards = [
     { id: "profile", label: "Profile", icon: "♙", title: email, text: "Name and phone editing will be enabled when those fields are supported by the customer profile model." },
-    { id: "security", label: "Security", icon: "▢", title: "Password and sessions", text: "Use the authenticated sign-out control below. Password reset remains handled by the existing auth flow.", action: true },
+    { id: "security", label: "Security", icon: "▢", title: "Password and sessions", text: "Change your password after confirming your current password, and review your active session.", action: true },
     { id: "danger", label: "Danger zone", icon: "!", title: "Delete your account", text: "Permanently disable sign-in and anonymize your profile." },
   ];
   return <div className="settings-grid">{cards.map((card) => <Link className={`dashboard-card settings-card${card.id === "danger" ? " danger-card" : ""}`} href={`/account/settings/${card.id}`} key={card.id}><span className="settings-card-trigger"><span className="settings-icon">{card.icon}</span><span>{card.label}</span><b>↗</b></span><span className="settings-card-details"><strong>{card.title}</strong><small>{card.text}</small></span></Link>)}</div>;

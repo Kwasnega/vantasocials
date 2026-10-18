@@ -51,6 +51,10 @@ const zeroNumberRate = derivePricing({ ...service, provider_rate: 0 }, "12");
 assert.equal(zeroNumberRate.status, "AVAILABLE");
 assert.equal(zeroNumberRate.per1000.providerCostGhs, "0");
 
+const databaseNumberRate = derivePricing({ ...service, provider_rate: 0.2664 }, "12");
+assert.equal(databaseNumberRate.status, "AVAILABLE");
+assert.equal(databaseNumberRate.per1000.providerCostGhs, "3.1968");
+
 assert.equal(derivePricing({ ...service, provider_rate: null }, "12").status, "UNAVAILABLE");
 assert.match(derivePricing({ ...service, provider_rate: "not-a-rate" }, "12").reason, /Invalid monetary value/);
 assert.match(derivePricing({ ...service, provider_rate_unit: "UNKNOWN" }, "12").reason, /unsupported/);

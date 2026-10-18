@@ -164,6 +164,7 @@ export function SignupForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -173,6 +174,10 @@ export function SignupForm() {
     setError("");
     setMessage("");
 
+    if (!acceptedTerms) {
+      setError("Please agree to the Terms of Service and Privacy Policy before creating an account.");
+      return;
+    }
     if (!email.trim() || password.length < 6) {
       setError("Use a valid email and a password with at least 6 characters.");
       return;
@@ -242,6 +247,21 @@ export function SignupForm() {
           autoComplete="new-password"
           required
         />
+      </label>
+      <label className="auth-terms">
+        <input
+          type="checkbox"
+          checked={acceptedTerms}
+          onChange={(event) => {
+            setAcceptedTerms(event.target.checked);
+            if (event.target.checked) setError("");
+          }}
+          required
+        />
+        <span>
+          I agree to VANTA’s <a href="/terms">Terms of Service</a> and{" "}
+          <a href="/privacy-policy">Privacy Policy</a>.
+        </span>
       </label>
       {error && <p role="alert">{error}</p>}
       {message && <p role="status">{message}</p>}

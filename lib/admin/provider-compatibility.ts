@@ -34,6 +34,27 @@ function declaredText(metadata: Metadata, keys: string[]) {
   return { value: values[0], contradictory: values.some((value) => value !== values[0]) };
 }
 
+function inferProviderTargetType(platform: string, name: string, category: string): string | null {
+  const operation = `${name} ${category}`.toLowerCase();
+  if (
+    platform === "instagram" &&
+    /\b(?:likes?|views?|comments?|saves?|reels?)\b/.test(operation)
+  ) {
+    return "post_url";
+  }
+  if (platform === "facebook") {
+    if (/\bvideo\b/.test(operation) && /\b(?:views?|likes?|comments?)\b/.test(operation)) return "video_url";
+    if (/\bpost\b/.test(operation) && /\b(?:likes?|comments?|shares?|reactions?)\b/.test(operation)) return "post_url";
+    if (
+      /\b(?:page|profile)\b/.test(operation) &&
+      /\b(?:followers?|likes?)\b/.test(operation)
+    ) {
+      return "page";
+    }
+  }
+  return null;
+}
+
 export function detectPlatformFromText(nameAndCategory: string): string | null {
   const haystack = ` ${nameAndCategory.toLowerCase()} `;
   for (const p of KNOWN_PLATFORMS) {
@@ -48,23 +69,36 @@ export function resolveProviderCompatibility(rawMetadata: unknown, name?: string
   const metadata = rawMetadata && typeof rawMetadata === "object" ? rawMetadata as Metadata : {};
   const platform = declaredText(metadata, ["platform", "platform_name", "platformSlug", "platform_slug", "network"]);
   const target = declaredText(metadata, ["target_type", "targetType", "input_type", "inputType"]);
+  const category = typeof metadata.category === "string" ? metadata.category : "";
+  const resolvedPlatform = platform.value ?? detectPlatformFromText(`${name ?? ""} ${category}`);
+  const resolvedTarget = target.value ?? (
+    resolvedPlatform ? inferProviderTargetType(resolvedPlatform, name ?? "", category) : null
+  );
 
   if (platform.contradictory || target.contradictory) {
     return { state: "MISSING_METADATA", reason: "Provider platform or target metadata is contradictory." };
   }
-  if (!name?.trim() || typeof metadata.category !== "string" || !metadata.category.trim()) {
+  if (!name?.trim() || !category.trim()) {
     return { state: "MISSING_METADATA", reason: "Provider service name and category metadata are required." };
   }
-  if (!platform.value) {
+  if (!resolvedPlatform) {
     return { state: "MISSING_METADATA", reason: "Provider platform could not be determined from catalog metadata." };
   }
-  if (!target.value) {
-    return { state: "MISSING_METADATA", reason: "Provider target type must be explicitly declared in catalog metadata." };
+  if (!resolvedTarget) {
+    return { state: "MISSING_METADATA", reason: "Provider target type could not be determined from its service operation." };
   }
-  if (!(TARGET_TYPES as readonly string[]).includes(target.value)) {
+  if (!(TARGET_TYPES as readonly string[]).includes(resolvedTarget)) {
     return { state: "UNSUPPORTED_TARGET", reason: "Provider target/input requirement is not supported by VANTA." };
   }
-  return { state: "READY", compatibility: { platform: platform.value, targetType: target.value as ServiceTargetType }, reason: "Provider platform and target are explicitly declared." };
+  return {
+    state: "READY",
+    compatibility: { platform: resolvedPlatform, targetType: resolvedTarget as ServiceTargetType },
+    reason: target.value
+      ? platform.value
+        ? "Provider platform and target are explicitly declared."
+        : "Provider platform was inferred from its catalog service name and category."
+      : "Provider target type was inferred from its Instagram content service operation.",
+  };
 }
 
 export function sameProviderPlatform(providerPlatform: string, vantaPlatform: { name?: string; slug?: string | null }) {
@@ -89,29 +123,42 @@ export function resolveProviderPlatformCompatibility(rawMetadata: unknown, vanta
   const metadata = rawMetadata && typeof rawMetadata === "object" ? rawMetadata as Metadata : {};
   const declared = declaredText(metadata, ["platform", "platform_name", "platformSlug", "platform_slug", "network"]);
   if (declared.contradictory) return { state: "MISSING_METADATA", reason: "Provider platform metadata is contradictory." };
-  if (!name?.trim() || typeof metadata.category !== "string" || !metadata.category.trim() || !declared.value || !vantaPlatform) {
+  const category = typeof metadata.category === "string" ? metadata.category : "";
+  const providerPlatform = declared.value ?? detectPlatformFromText(`${name ?? ""} ${category}`);
+  if (!name?.trim() || !category.trim() || !providerPlatform || !vantaPlatform) {
     return { state: "MISSING_METADATA", reason: "Provider service name, category, and explicit platform metadata are required." };
   }
-  if (!sameProviderPlatform(declared.value, vantaPlatform)) return { state: "PLATFORM_MISMATCH", reason: "Provider platform does not match the VANTA platform." };
-  return { state: "READY", reason: "Provider platform matches the VANTA platform." };
+  if (!sameProviderPlatform(providerPlatform, vantaPlatform)) return { state: "PLATFORM_MISMATCH", reason: "Provider platform does not match the VANTA platform." };
+  return {
+    state: "READY",
+    reason: declared.value
+      ? "Provider platform matches the VANTA platform."
+      : "Provider platform was inferred from its catalog service name and category.",
+  };
 }
 
 export function matchesApprovedProviderOperation(serviceSlug: string, providerServiceId: string, name: string, category: string) {
-  const approvedOperations: Record<string, { providerServiceId: string; servicePhrase: string; categoryPhrase: string }> = {
-    "instagram-likes": { providerServiceId: "5911", servicePhrase: "instagram likes", categoryPhrase: "instagram likes" },
-    "instagram-views": { providerServiceId: "7486", servicePhrase: "instagram video views", categoryPhrase: "instagram services" },
-    "instagram-saves": { providerServiceId: "7841", servicePhrase: "instagram saves", categoryPhrase: "instagram services" },
-    "tiktok-followers": { providerServiceId: "7054", servicePhrase: "tiktok followers", categoryPhrase: "tiktok followers" },
-    "tiktok-views": { providerServiceId: "5661", servicePhrase: "tiktok video views", categoryPhrase: "tiktok video views" },
-    "tiktok-shares": { providerServiceId: "7580", servicePhrase: "tiktok video shares", categoryPhrase: "tiktok video services" },
-    "youtube-subscribers": { providerServiceId: "7458", servicePhrase: "youtube subscribers", categoryPhrase: "youtube subscribers" },
-    "youtube-likes": { providerServiceId: "4210", servicePhrase: "youtube likes", categoryPhrase: "youtube likes" },
-    "facebook-page-followers": { providerServiceId: "7229", servicePhrase: "facebook followers", categoryPhrase: "facebook followers" },
-    "facebook-post-likes": { providerServiceId: "7099", servicePhrase: "facebook post likes", categoryPhrase: "facebook post likes" },
-    "facebook-video-views": { providerServiceId: "7603", servicePhrase: "facebook views", categoryPhrase: "facebook views" },
+  const approvedOperations: Record<string, Array<{ providerServiceId: string; servicePhrase: string; categoryPhrase: string }>> = {
+    "instagram-likes": [
+      { providerServiceId: "5911", servicePhrase: "instagram likes", categoryPhrase: "instagram likes" },
+      { providerServiceId: "1881", servicePhrase: "instagram likes", categoryPhrase: "instagram new services" },
+    ],
+    "instagram-views": [{ providerServiceId: "7486", servicePhrase: "instagram video views", categoryPhrase: "instagram services" }],
+    "instagram-saves": [{ providerServiceId: "7841", servicePhrase: "instagram saves", categoryPhrase: "instagram services" }],
+    "tiktok-followers": [{ providerServiceId: "7054", servicePhrase: "tiktok followers", categoryPhrase: "tiktok followers" }],
+    "tiktok-views": [{ providerServiceId: "5661", servicePhrase: "tiktok video views", categoryPhrase: "tiktok video views" }],
+    "tiktok-shares": [{ providerServiceId: "7580", servicePhrase: "tiktok video shares", categoryPhrase: "tiktok video services" }],
+    "youtube-subscribers": [{ providerServiceId: "7458", servicePhrase: "youtube subscribers", categoryPhrase: "youtube subscribers" }],
+    "youtube-likes": [{ providerServiceId: "4210", servicePhrase: "youtube likes", categoryPhrase: "youtube likes" }],
+    "facebook-page-followers": [{ providerServiceId: "7229", servicePhrase: "facebook followers", categoryPhrase: "facebook followers" }],
+    "facebook-post-likes": [{ providerServiceId: "7099", servicePhrase: "facebook post likes", categoryPhrase: "facebook post likes" }],
+    "facebook-video-views": [{ providerServiceId: "7603", servicePhrase: "facebook views", categoryPhrase: "facebook views" }],
   };
-  const expected = approvedOperations[serviceSlug];
-  if (!expected || providerServiceId !== expected.providerServiceId) return false;
+  const operation = Object.entries(approvedOperations).find(([slug]) =>
+    serviceSlug === slug || serviceSlug.startsWith(`${slug}-`)
+  )?.[1];
+  const expected = operation?.find((candidate) => candidate.providerServiceId === providerServiceId);
+  if (!expected) return false;
   const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   return normalize(name).includes(expected.servicePhrase) && normalize(category).startsWith(expected.categoryPhrase);
 }

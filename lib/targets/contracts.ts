@@ -12,7 +12,7 @@ export const getTargetContract = (slug: string) => targetContracts[slug] ?? null
 export function getTargetContractForService(input: { slug: string; platformSlug?: string | null; targetType?: string | null }): TargetContract | null {
   const legacy = getTargetContract(input.slug); if (legacy) return legacy;
   const platform = String(input.platformSlug ?? "").toLowerCase(); const target = String(input.targetType ?? "");
-  if (platform === "instagram" && target === "url") return "INSTAGRAM_CONTENT";
+  if (platform === "instagram" && (target === "url" || target === "post_url")) return "INSTAGRAM_CONTENT";
   if (platform === "tiktok" && target === "username") return "TIKTOK_PROFILE";
   if (platform === "tiktok" && target === "video_url") return "TIKTOK_VIDEO";
   if (platform === "youtube" && target === "channel") return "YOUTUBE_CHANNEL";
@@ -38,6 +38,21 @@ function content(value: string, domains: string[], pattern: RegExp, queryRequire
 
 export function normalizeTarget(slug: string, value: string): ContractResult {
   const contract = getTargetContract(slug); if (!contract) return fail("No target contract is defined for this service.");
+  return normalizeTargetForContract(contract, value);
+}
+
+export function normalizeTargetForService(input: {
+  slug: string;
+  platformSlug?: string | null;
+  targetType?: string | null;
+  value: string;
+}): ContractResult {
+  const contract = getTargetContractForService(input);
+  if (!contract) return fail("No supported VANTA target contract.");
+  return normalizeTargetForContract(contract, input.value);
+}
+
+function normalizeTargetForContract(contract: TargetContract, value: string): ContractResult {
   switch (contract) {
     case "INSTAGRAM_PROFILE": return profile(value, ["instagram.com", "www.instagram.com"], "https://www.instagram.com", /^\/[^/]+$/);
     case "TIKTOK_PROFILE": return profile(value, ["tiktok.com", "www.tiktok.com"], "https://www.tiktok.com/@", /^\/@[^/]+$/);

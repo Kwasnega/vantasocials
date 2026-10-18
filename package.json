@@ -21,6 +21,7 @@
     "test:phase5-preflight": "node scripts/phase5-preflight-tests.mjs",
     "verify:auth": "node scripts/auth-verification.mjs",
     "verify:wallet": "node scripts/wallet-verification.mjs",
+    "test:order-timeline": "node scripts/order-timeline-tests.mjs",
     "reliablesmm:r4:test": "node scripts/reliablesmm-r4-request.mjs"
   },
   "dependencies": {

@@ -17,9 +17,9 @@ export default async function ServiceInputConfigurationPage({ params }: { params
     { data: mappings, error: mappingsError },
     { data: catalog, error: catalogError },
   ] = await Promise.all([
-    db.from("service_input_fields").select("*").eq("service_id", serviceId).order("display_order", { ascending: true }).order("created_at", { ascending: true }),
-    db.from("service_provider_input_mappings").select("*").eq("service_id", serviceId).order("created_at", { ascending: false }),
-    db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,raw_metadata").eq("provider", "reliablesmm").eq("provider_status", "ACTIVE").order("provider_service_id"),
+    db.from("service_input_fields").select("id,service_id,key,label,input_type,required,display_order,placeholder,help_text,validation_config,active,schema_version,created_at,updated_at").eq("service_id", serviceId).order("display_order", { ascending: true }).order("created_at", { ascending: true }),
+    db.from("service_provider_input_mappings").select("id,service_id,provider,provider_service_id,provider_parameter_key,transform_id,transform_version,provider_required,omit_when_blank,active,schema_version,vanta_input_field_key,created_at,updated_at").eq("service_id", serviceId).order("created_at", { ascending: false }),
+    db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_status", "ACTIVE").order("provider_service_id"),
   ]);
   if (fieldsError || mappingsError || catalogError) return <>
     {fieldsError && <AdminQueryError message="Input fields could not be loaded." />}

@@ -3,6 +3,7 @@ import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
+import { cache } from "react";
 
 function getSupabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -31,7 +32,10 @@ export async function createSupabaseServerClient() {
   });
 }
 
-import { cache } from "react";
+export function createSupabasePublicClient() {
+  const { url, anonKey } = getSupabaseConfig();
+  return createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
+}
 
 export const getCurrentUser = cache(async () => {
   const supabase = await createSupabaseServerClient();

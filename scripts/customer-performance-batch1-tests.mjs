@@ -152,7 +152,12 @@ const serviceImports = {
     vm.runInNewContext(output, { module, exports: module.exports, Error });
     return module.exports;
   })(),
-  "../../lib/targets/contracts": { getTargetContract: () => null },
+  "../../lib/targets/contracts": {
+    getTargetContract: () => null,
+    getTargetRequirements: () => ({ helperText: "", placeholder: "", example: "" }),
+    normalizeTargetForService: () => ({ valid: true, target: "https://instagram.com/test" }),
+    resolveTargetInputField: (fields) => ({ isDynamic: Boolean(fields?.length), targetField: fields?.[0] ?? null, field: fields?.[0] ?? null }),
+  },
 };
 const service = {
   id: "service-1",
@@ -241,7 +246,8 @@ for (const { label, status, body, reject } of [
 
 {
   const paymentOptionsSource = fs.readFileSync("components/checkout/CheckoutPaymentOptions.tsx", "utf8");
-  assert.doesNotMatch(paymentOptionsSource, /Direct Payment \(Paystack\)|Cards|MoMo|Pay via Paystack|CheckoutPayButton/);
+  assert.match(paymentOptionsSource, /CheckoutPayButton/, "online payment action is connected to checkout payment options");
+  assert.doesNotMatch(paymentOptionsSource, /Direct Payment \(Paystack\)|Cards|MoMo|Pay via Paystack/);
   const harness = createHarness({
     fetch: async () => response(200, {
       order: { public_order_id: "VNT-WALLET1", payment_status: "PAID" },
@@ -330,6 +336,7 @@ for (const { label, fetchMock, expectedMessage } of [
   const harness = createHarness({
     fetch: async () => response(200, {
       authorization_url: "https://checkout.paystack.com/test-authorization",
+      allowed_checkout_hosts: ["checkout.paystack.com"],
     }),
   });
   const { CheckoutPayButton } = harness.compile("components/checkout/CheckoutPayButton.tsx");

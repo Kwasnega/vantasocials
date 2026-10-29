@@ -3,6 +3,8 @@ import { normalizeMappingDraft } from "../lib/admin/service-input-config.ts";
 import { buildProviderPayload } from "../lib/fulfillment/provider-input-transform.ts";
 import { buildReliableSMMProviderRequest } from "../lib/fulfillment/reliablesmm/request.ts";
 import { RELIABLESMM_RESERVED_TRANSPORT_KEYS, isReservedProviderTransportKey } from "../lib/fulfillment/reliablesmm/reserved-keys.ts";
+import { extractApprovedProviderParameters } from "../lib/admin/service-input-config.ts";
+import { assertProviderMappingConsistency } from "../lib/fulfillment/provider-mapping-consistency.ts";
 
 const serviceInputField = {
   key: "username",
@@ -43,14 +45,48 @@ const validCommentsMapping = {
 };
 
 assert.doesNotThrow(() => normalizeMappingDraft(validMapping, serviceInputField));
+assert.doesNotThrow(() => normalizeMappingDraft({
+  ...validMapping,
+  providerServiceId: "2039",
+  providerParameterKey: "link",
+  transformId: "normalize_url",
+}, {
+  id: "field-post-url",
+  service_id: "svc_1",
+  key: "post_url",
+  label: "Post URL",
+  input_type: "post_url",
+  required: true,
+  display_order: 1,
+  validation_config: { maxLength: 2048 },
+  schema_version: 1,
+  active: true,
+}, "url"));
+assert.deepEqual(extractApprovedProviderParameters({ service: "2039", name: "Instagram Video Views" }), ["link"]);
+assert.deepEqual(extractApprovedProviderParameters({ parameters: ["username", "service", "quantity", "link"] }), ["username", "link"]);
+assert.throws(() => normalizeMappingDraft({
+  ...validMapping,
+  providerParameterKey: "link",
+  transformId: "trim",
+}, { ...serviceInputField, key: "post_url", inputType: "post_url" }), /link.*normalize_url/i);
+assert.throws(() => normalizeMappingDraft({
+  ...validMapping,
+  providerParameterKey: "link",
+  transformId: "normalize_url",
+}, serviceInputField, "url"), /URL field compatible with the VANTA service target/i);
 assert.doesNotThrow(() => normalizeMappingDraft(validCommentsMapping, { ...serviceInputField, key: "comments", inputType: "comments" }));
 assert.doesNotThrow(() => normalizeMappingDraft({ ...validMapping, providerParameterKey: "channel" }, { ...serviceInputField, key: "channel", inputType: "channel" }));
 assert.doesNotThrow(() => normalizeMappingDraft({ ...validMapping, providerParameterKey: "page" }, { ...serviceInputField, key: "page", inputType: "page" }));
 assert.doesNotThrow(() => normalizeMappingDraft({ ...validMapping, providerParameterKey: "video_url" }, { ...serviceInputField, key: "video_url", inputType: "video_url" }));
 
-for (const key of ["action", "service", "quantity", "link"]) {
+for (const key of ["action", "service", "quantity"]) {
   assert.throws(() => normalizeMappingDraft({ ...validMapping, providerParameterKey: key }, serviceInputField), /reserved for system-controlled transport fields/i, `Expected ${key} to be rejected`);
 }
+assert.throws(
+  () => normalizeMappingDraft({ ...validMapping, providerParameterKey: "link", transformId: "normalize_url" }, serviceInputField),
+  /URL field compatible with the VANTA service target/i,
+  "A reserved link mapping must only accept URL-shaped fields.",
+);
 
 const baseOrder = {
   orderId: "order_123",
@@ -77,11 +113,11 @@ assert.throws(() => buildProviderPayload({ ...baseOrder, inputValues: { ...baseO
 assert.throws(() => buildProviderPayload({ ...baseOrder, inputValues: { ...baseOrder.inputValues, provider: "evil" } }, baseMappings), /provider metadata is rejected|provider.*mismatch/i);
 
 const request = buildReliableSMMProviderRequest({
-  providerServiceId: "7486",
+  providerServiceId: "2039",
   quantity: 100,
   targetValue: "https://example.com/path?x=1",
   payload: {
-    service: "9999",
+    service: "7486",
     quantity: 999,
     action: "delete",
     link: "https://evil.example/",
@@ -89,10 +125,10 @@ const request = buildReliableSMMProviderRequest({
     comments: "hello",
   },
 });
-assert.equal(request.providerServiceId, "7486");
+assert.equal(request.providerServiceId, "2039");
 assert.equal(request.quantity, 100);
 assert.equal(request.targetValue, "https://example.com/path?x=1");
-assert.equal(request.request.service, 7486);
+assert.equal(request.request.service, 2039);
 assert.equal(request.request.quantity, 100);
 assert.equal(request.request.link, "https://example.com/path?x=1");
 assert.equal(request.request.username, "alice");
@@ -101,5 +137,16 @@ assert.equal(Object.prototype.hasOwnProperty.call(request.request, "action"), fa
 assert.equal(Object.prototype.hasOwnProperty.call(request.request, "provider"), false);
 
 assert.deepEqual([...RELIABLESMM_RESERVED_TRANSPORT_KEYS], ["action", "service", "quantity", "link"]);
+assert.deepEqual(
+  assertProviderMappingConsistency(
+    { provider: "reliablesmm", provider_service_id: "2039" },
+    [{ provider: "reliablesmm", provider_service_id: "2039" }],
+  ),
+  { provider: "reliablesmm", providerServiceId: "2039" },
+);
+assert.throws(() => assertProviderMappingConsistency(
+  { provider: "reliablesmm", provider_service_id: "7486" },
+  [{ provider: "reliablesmm", provider_service_id: "2039" }],
+), /does not match the service-level mapping/i);
 
 console.log("phase38-provider-request-contract-tests: passed");

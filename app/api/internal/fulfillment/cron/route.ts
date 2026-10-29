@@ -4,6 +4,12 @@ import crypto from "node:crypto";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { fulfillPaidOrder } from "../../../../../lib/fulfillment/worker";
 import { claimOrder, releaseOrderClaim } from "../../../../../lib/fulfillment/claims";
+import { dispatchPaidOrder } from "../../../../../lib/fulfillment/dispatch-paid-order";
+import {
+  normalizePersistedProviderInputMappings,
+  type PersistedProviderInputMapping,
+  type ProviderInputMapping,
+} from "../../../../../lib/fulfillment/service-input-mapping";
 
 const BATCH_SIZE = 10;
 
@@ -20,34 +26,51 @@ export async function POST(request: NextRequest) {
     .from("orders")
     .select("id,target_type,target_value,quantity,total,service_id,payment_status,fulfillment_status,input_schema_version,input_schema_snapshot,input_values,services!inner(id,slug,provider,provider_service_id)")
     .eq("payment_status", "PAID")
-    .eq("fulfillment_status", "NOT_STARTED")
+    .in("fulfillment_status", ["NOT_STARTED", "SUBMITTING"])
     .order("created_at", { ascending: true })
     .limit(BATCH_SIZE);
   if (error) return NextResponse.json({ error: "Unable to load fulfillment jobs." }, { status: 500 });
 
   const distinctServiceIds = Array.from(new Set((orders || []).map((o) => o.service_id).filter(Boolean)));
-  const mappingsByServiceId = new Map<string, any[]>();
+  const mappingsByServiceId = new Map<string, ProviderInputMapping[]>();
   if (distinctServiceIds.length > 0) {
     const { data: batchMappings, error: mappingsError } = await admin
       .from("service_provider_input_mappings")
-      .select("service_id,provider,provider_service_id,provider_parameter_key,transform_id,transform_version,provider_required,omit_when_blank,schema_version,active,vanta_input_field_key")
+      .select("service_id,provider,provider_service_id,provider_parameter_key,transform_id,transform_version,provider_required,omit_when_blank,schema_version,active,service_input_fields!service_provider_input_mappings_service_field_fk(key)")
       .in("service_id", distinctServiceIds)
       .eq("active", true)
       .order("created_at", { ascending: true });
     if (!mappingsError && Array.isArray(batchMappings)) {
-      for (const mapping of batchMappings) {
-        const list = mappingsByServiceId.get(mapping.service_id) ?? [];
-        list.push(mapping);
-        mappingsByServiceId.set(mapping.service_id, list);
+      try {
+        const normalized = normalizePersistedProviderInputMappings(batchMappings as unknown as PersistedProviderInputMapping[]);
+        for (const mapping of normalized) {
+          const list = mappingsByServiceId.get(mapping.service_id) ?? [];
+          list.push(mapping);
+          mappingsByServiceId.set(mapping.service_id, list);
+        }
+      } catch {
+        // Fallback: worker will fetch directly if missing
       }
     }
   }
 
   const results = [];
   for (const order of orders || []) {
+    const service = Array.isArray(order.services) ? order.services[0] : order.services;
+    if (service?.provider === "reliablesmm") {
+      try {
+        const result = await dispatchPaidOrder(order.id);
+        console.info(JSON.stringify({ event: "fulfillment_job_processed", orderId: order.id, outcome: result.outcome }));
+        results.push({ orderId: order.id, outcome: result.outcome });
+      } catch {
+        console.error(JSON.stringify({ event: "fulfillment_job_failed", orderId: order.id, serviceSlug: service.slug ?? null }));
+        results.push({ orderId: order.id, outcome: "FAILED" });
+      }
+      continue;
+    }
+
     const ownerToken = crypto.randomUUID();
     if (!(await claimOrder(order.id, ownerToken))) continue;
-    const service = Array.isArray(order.services) ? order.services[0] : order.services;
     try {
       if (!service?.slug) continue;
       const prefetchedMappings = mappingsByServiceId.get(order.service_id) ?? null;

@@ -5,10 +5,10 @@ import { createSupabaseAdminClient } from "../../supabase/server";
 import { assertOrderEligibleForFulfillment } from "../service";
 import { ReliableSMMAdapter } from "./adapter";
 import { reliableSMMCost } from "./pricing";
-import { ReliableSMMReadOnlyClient } from "./client";
+import { ReliableSMMError, ReliableSMMReadOnlyClient } from "./client";
 import { assertReliableSMMTarget } from "./target";
-import { normalizeTarget } from "../../targets/contracts";
 import { buildReliableSMMProviderRequest } from "./request";
+import { resolveTargetInputField } from "../../targets/contracts";
 
 export async function executeReliableSMMSubmission(input: { orderId: string; providerServiceId: string; targetValue: string; quantity: number; payload?: Record<string, unknown>; adapter?: ReliableSMMAdapter; admin?: ReturnType<typeof createSupabaseAdminClient>; dormant?: boolean; attemptId?: string }) {
   const request = buildReliableSMMProviderRequest({ providerServiceId: input.providerServiceId, quantity: input.quantity, targetValue: input.targetValue, payload: input.payload ?? {} });
@@ -28,6 +28,7 @@ export async function executeReliableSMMSubmission(input: { orderId: string; pro
   const admin = input.admin ?? createSupabaseAdminClient();
   const attemptId = input.attemptId ?? `submission:${input.orderId}:${input.providerServiceId}:${Date.now()}`;
   const ownerToken = crypto.randomUUID();
+  let submissionBoundaryCrossed = false;
   const providerLock = await admin.rpc("acquire_provider_operation_lock", { p_operation_key: "reliablesmm:submission", p_owner_token: ownerToken, p_lease_seconds: 60 });
   if (providerLock.error || providerLock.data !== true) throw new Error("ReliableSMM submission is busy; retry later.");
   try {
@@ -36,6 +37,7 @@ export async function executeReliableSMMSubmission(input: { orderId: string; pro
     await adapter.acquireRequestGate();
     const boundary = await admin.rpc("record_submission_boundary", { p_attempt_id: attemptId, p_owner_token: ownerToken });
     if (boundary.error || boundary.data !== true) throw new Error("Unable to record submission boundary.");
+    submissionBoundaryCrossed = true;
     const result = await adapter.createOrder({ providerServiceId: request.providerServiceId, targetValue: request.targetValue, quantity: request.quantity, providerParams: request.request }, true);
     const saved = await admin.rpc("persist_provider_submission_success", { p_attempt_id: attemptId, p_owner_token: ownerToken, p_provider_order_id: result.providerOrderId, p_status: "SUBMITTED", p_raw_response: result.rawResponse });
     if (saved.error || saved.data !== true) throw new Error("Provider response persistence was ambiguous.");
@@ -44,20 +46,53 @@ export async function executeReliableSMMSubmission(input: { orderId: string; pro
     }
     return (await admin.from("provider_orders").select("id,attempt_status,provider_order_id,status").eq("id", attemptId).single()).data;
   } catch (error) {
-    const unknown = error instanceof Error && ((error as { status?: number }).status === 408 || error.message.includes("ambiguous"));
-    await admin.rpc("record_submission_failure", { p_attempt_id: attemptId, p_owner_token: ownerToken, p_ambiguous: unknown, p_error: error instanceof Error ? error.message : "PROVIDER_ERROR" });
+    const definitivelyRejected = error instanceof ReliableSMMError && error.code === "PROVIDER_REJECTED";
+    const unknown = submissionBoundaryCrossed && !definitivelyRejected;
+    const code = error instanceof ReliableSMMError && error.code && /^[A-Z0-9_]{1,64}$/.test(error.code)
+      ? error.code
+      : "SUBMISSION_ERROR";
+    const failure = await admin.rpc("record_submission_failure", {
+      p_attempt_id: attemptId,
+      p_owner_token: ownerToken,
+      p_ambiguous: unknown,
+      p_error: code,
+    });
+    if (failure.error || failure.data !== true) {
+      throw new Error("Unable to persist the ReliableSMM submission outcome; reconciliation is required.");
+    }
     throw error;
   } finally {
     await admin.rpc("release_provider_operation_lock", { p_operation_key: "reliablesmm:submission", p_owner_token: ownerToken });
   }
 }
 
-export async function fulfillReliableSMMDynamicOrder(input: { orderId: string; serviceId: string; provider: string; providerServiceId: string; payload: Record<string, unknown>; quantity: number }) {
+export async function fulfillReliableSMMDynamicOrder(input: {
+  orderId: string;
+  serviceId: string;
+  vantaSlug: string;
+  targetType: "username" | "url" | "post_url" | "video_url" | "channel" | "page";
+  provider: string;
+  providerServiceId: string;
+  payload: Record<string, unknown>;
+  quantity: number;
+  allowLiveSubmission?: boolean;
+}) {
   if (input.provider !== "reliablesmm") throw new Error("Dynamic fulfillment is only supported for ReliableSMM.");
   if (!input.providerServiceId) throw new Error("ReliableSMM provider service is required for dynamic fulfillment.");
   if (!input.payload || typeof input.payload !== "object" || Array.isArray(input.payload)) throw new Error("Dynamic ReliableSMM payload is invalid.");
 
   const request = buildReliableSMMProviderRequest({ providerServiceId: input.providerServiceId, quantity: input.quantity, targetValue: String((input.payload as Record<string, unknown>).link ?? ""), payload: input.payload });
+  if (input.allowLiveSubmission) {
+    return fulfillReliableSMMOrder({
+      orderId: input.orderId,
+      vantaSlug: input.vantaSlug,
+      targetType: input.targetType,
+      targetValue: request.targetValue,
+      quantity: request.quantity,
+      expectedProviderServiceId: request.providerServiceId,
+    });
+  }
+
   return await executeReliableSMMSubmission({
     orderId: input.orderId,
     providerServiceId: request.providerServiceId,
@@ -68,14 +103,25 @@ export async function fulfillReliableSMMDynamicOrder(input: { orderId: string; s
   });
 }
 
-export async function fulfillReliableSMMOrder(input: { orderId: string; vantaSlug: string; targetType: "username" | "url" | "post_url" | "video_url" | "channel" | "page"; targetValue: string; quantity: number }, adapter = new ReliableSMMAdapter()) {
+export async function fulfillReliableSMMOrder(input: {
+  orderId: string;
+  vantaSlug: string;
+  targetType: "username" | "url" | "post_url" | "video_url" | "channel" | "page";
+  targetValue: string;
+  quantity: number;
+  expectedProviderServiceId?: string;
+}, adapter = new ReliableSMMAdapter()) {
   if (!Number.isSafeInteger(input.quantity)) throw new Error("Invalid quantity.");
   const order = await assertOrderEligibleForFulfillment(input.orderId);
-  const persistedTarget = getPersistedTarget(input.vantaSlug, order.target_value);
-  const callerTarget = assertReliableSMMTarget({ vantaSlug: input.vantaSlug, targetType: input.targetType, targetValue: input.targetValue });
+  if (input.targetType !== order.target_type) throw new Error("Fulfillment target type does not match the paid order.");
+  const admin = createSupabaseAdminClient();
+  const persistedTarget = await getPersistedTarget(order, admin);
+  const callerTarget = assertReliableSMMTarget({ platformSlug: String(order.platform_slug ?? ""), targetType: order.target_type, targetValue: input.targetValue });
   if (callerTarget.link !== persistedTarget.link) throw new Error("Fulfillment target does not match the paid order.");
   if (order.provider !== "reliablesmm" || !order.provider_service_id) throw new Error("ReliableSMM mapping is inactive and requires manual review.");
-  const admin = createSupabaseAdminClient();
+  if (input.expectedProviderServiceId && order.provider_service_id !== input.expectedProviderServiceId) {
+    throw new Error("ReliableSMM mapping changed after the dynamic request was prepared.");
+  }
   const { data: approvedCatalog, error: catalogError } = await admin.from("provider_catalog_services").select("provider,provider_service_id,provider_rate,provider_currency,rate_unit,provider_status,min_quantity,max_quantity").eq("provider", "reliablesmm").eq("provider_service_id", order.provider_service_id).maybeSingle();
   if (catalogError) throw catalogError;
   if (!approvedCatalog || approvedCatalog.provider_status !== "ACTIVE" || approvedCatalog.provider_currency !== "USD" || !["PER_1000", "PER_ORDER"].includes(approvedCatalog.rate_unit)) throw new Error("ReliableSMM mapping is missing an active approved catalog entry.");
@@ -106,11 +152,53 @@ export async function fulfillReliableSMMOrder(input: { orderId: string; vantaSlu
   return submitAttempt(attempt, adapter, admin);
 }
 
-function getPersistedTarget(slug: string, value: string | null) {
-  if (!value) throw new Error("Paid order has no target.");
-  const normalized = normalizeTarget(slug, value);
-  if (!normalized.valid) throw new Error(`Persisted order target is invalid: ${normalized.reason}`);
-  return { link: normalized.target };
+async function getPersistedTarget(order: Awaited<ReturnType<typeof assertOrderEligibleForFulfillment>>, admin: ReturnType<typeof createSupabaseAdminClient>) {
+  const platformSlug = String(order.platform_slug ?? "");
+  const targetType = order.target_type;
+  const hasDynamicInputs = Array.isArray(order.input_schema_snapshot) && order.input_schema_snapshot.length > 0;
+  if (!hasDynamicInputs) {
+    if (!order.target_value) throw new Error("Paid order has no target.");
+    return assertReliableSMMTarget({ platformSlug, targetType, targetValue: order.target_value });
+  }
+
+  const targetField = resolveTargetInputField(
+    order.input_schema_snapshot as Array<{ key: string; inputType?: string; input_type?: string }>,
+    targetType,
+  );
+  if (!targetField.field) throw new Error(targetField.error);
+  const inputValues = order.input_values;
+  const targetValue = inputValues && typeof inputValues === "object" && !Array.isArray(inputValues)
+    ? (inputValues as Record<string, unknown>)[targetField.field.key]
+    : null;
+  if (typeof targetValue !== "string") throw new Error("Paid order is missing its configured target value.");
+
+  const { data: mappings, error } = await admin
+    .from("service_provider_input_mappings")
+    .select("provider_parameter_key,transform_id,transform_version,service_input_fields!service_provider_input_mappings_service_field_fk(key)")
+    .eq("service_id", order.service_id)
+    .eq("provider", "reliablesmm")
+    .eq("provider_service_id", order.provider_service_id)
+    .eq("active", true);
+  if (error) throw error;
+  const linkMappings = (mappings ?? []).filter((mapping) => mapping.provider_parameter_key === "link");
+  const mappingFieldKey = (mapping: (typeof linkMappings)[number]) => {
+    const field = mapping.service_input_fields as { key: string } | { key: string }[] | null;
+    return Array.isArray(field) ? field.length === 1 ? field[0]?.key : undefined : field?.key;
+  };
+  if (linkMappings.length !== 1) {
+    throw new Error("ReliableSMM requires exactly one active link mapping for the configured target field.");
+  }
+  const mapping = linkMappings[0];
+  if (mappingFieldKey(mapping) !== targetField.field.key) {
+    throw new Error("ReliableSMM requires exactly one active link mapping for the configured target field.");
+  }
+  return assertReliableSMMTarget({
+    platformSlug,
+    targetType,
+    targetValue,
+    transformId: mapping.transform_id,
+    transformVersion: Number(mapping.transform_version),
+  });
 }
 
 async function submitAttempt(attempt: { id: string; attempt_status: string; provider_service_id?: string; target_value?: string; quantity?: number }, adapter: ReliableSMMAdapter, admin: ReturnType<typeof createSupabaseAdminClient>) {

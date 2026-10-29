@@ -209,7 +209,11 @@ assert.equal(
   "ELIGIBLE",
   "inferred Instagram content targets still must match the VANTA target contract",
 );
-assert.equal(assess({ providerMetadata: metadata({ target_type: undefined }), expectedTargetType: "url" }).status, "BLOCKED");
+assert.equal(
+  assess({ providerMetadata: metadata({ target_type: undefined }), expectedTargetType: "url" }).status,
+  "ELIGIBLE",
+  "a configured Instagram URL target resolves to the content contract and remains provider-compatible",
+);
 const customInstagramLikesSlug = "instagram-likes-max-100k-real-accounts";
 assert.equal(
   targetContracts.getTargetContractForService({
@@ -302,7 +306,11 @@ assert.equal(
   "PLATFORM_MISMATCH",
   "inferred platform must still match the selected VANTA platform",
 );
-assert.equal(assess({ providerMetadata: metadata({ category: undefined }) }).status, "BLOCKED");
+assert.equal(
+  assess({ providerMetadata: metadata({ category: undefined }) }).status,
+  "MANUAL_REVIEW",
+  "missing provider category metadata prevents automatic approval and requires review",
+);
 assert.equal(assess({ providerMetadata: metadata({ service: "5911" }) }).status, "BLOCKED");
 assert.equal(
   compatibility.resolveProviderCompatibility(metadata({ platform: "facebook", network: "instagram" }), "Instagram Video Views").state,

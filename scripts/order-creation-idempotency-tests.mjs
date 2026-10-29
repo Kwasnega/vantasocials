@@ -16,6 +16,7 @@ function loadTypeScript(source, dependencies = {}) {
   vm.runInNewContext(compiled, {
     module,
     exports: module.exports,
+    URL,
     require(specifier) {
       if (specifier in dependencies) return dependencies[specifier];
       throw new Error(`Unexpected import in focused test: ${specifier}`);
@@ -23,6 +24,7 @@ function loadTypeScript(source, dependencies = {}) {
   });
   return module.exports;
 }
+const targetContracts = loadTypeScript(fs.readFileSync("lib/targets/contracts.ts", "utf8"));
 const migration = fs.readFileSync("supabase/migrations/20261012000000_order_creation_idempotency.sql", "utf8");
 const clientSource = fs.readFileSync("components/services/ServiceConfigurator.tsx", "utf8");
 const serviceId = "service-1";
@@ -41,11 +43,11 @@ const service = {
   provider: null,
   provider_service_id: null,
 };
-const platform = { id: platformId, active: true };
+const platform = { id: platformId, active: true, slug: "instagram" };
 const defaultInputFields = [{
-  key: "username",
-  label: "Username",
-  input_type: "text",
+  key: "target",
+  label: "Target URL",
+  input_type: "url",
   required: true,
   display_order: 1,
   schema_version: 1,
@@ -59,6 +61,7 @@ function makeDatabase({
   inputFields = defaultInputFields,
   insertError = null,
   dynamicFieldsError = null,
+  mappingRows = [],
   holdInitialIdempotencyLookups = false,
 } = {}) {
   const inserted = orders;
@@ -144,15 +147,17 @@ function makeDatabase({
   function read(query) {
     const matches = (row) => query.filters.every(([column, value]) => row?.[column] === value);
     if (query.table === "orders") {
-      return { data: inserted.find(matches) ?? null, error: null };
+      const found = inserted.find(matches) ?? null;
+      return { data: found ? { ...found, services: found.services ?? { platforms: { slug: "instagram" } } } : null, error: null };
     }
-    if (query.table === "services") return { data: currentServiceRecord && matches(currentServiceRecord) ? currentServiceRecord : null, error: null };
+    if (query.table === "services") return { data: currentServiceRecord && matches(currentServiceRecord) ? { ...currentServiceRecord, platforms: currentServiceRecord.platforms ?? { ...platform } } : null, error: null };
     if (query.table === "platforms") return { data: matches(platform) ? platform : null, error: null };
     if (query.table === "provider_catalog_services") return { data: null, error: null };
     if (query.table === "service_input_fields") {
       query.resultData = dynamicFieldRows;
       return { data: dynamicFieldRows, error: dynamicFieldsError };
     }
+    if (query.table === "service_provider_input_mappings") return { data: mappingRows, error: null };
     throw new Error(`Unexpected table read in order idempotency test: ${query.table}`);
   }
 
@@ -205,7 +210,7 @@ function loadPost({ db, authenticatedUser = { id: userId } } = {}) {
     }
     if (specifier === "node:crypto") return crypto;
     if (specifier === "next/server") {
-      return { NextResponse: { json: (body, init) => ({ body, status: init?.status ?? 200 }) } };
+      return { NextResponse: { json: (body, init) => ({ body, status: init?.status ?? 200 }) }, after() {} };
     }
     if (specifier === "../../../lib/supabase/server") {
       return {
@@ -237,25 +242,7 @@ function loadPost({ db, authenticatedUser = { id: userId } } = {}) {
         },
       };
     }
-    if (specifier === "../../../lib/targets/contracts") {
-      return {
-        getTargetContract: (slug) => slug === "instagram-followers" ? "INSTAGRAM_PROFILE" : null,
-        normalizeTarget: (_slug, raw) => {
-          try {
-            const target = raw.trim();
-            const url = new URL(target.startsWith("@") ? `https://www.instagram.com/${target.slice(1)}` : target);
-            url.pathname = url.pathname.replace(/\/$/, "");
-            if (url.protocol !== "https:" || !["instagram.com", "www.instagram.com"].includes(url.hostname) || !/^\/[^/]+$/.test(url.pathname)) {
-              return { valid: false, reason: "invalid target" };
-            }
-            url.hash = "";
-            return { valid: true, target: url.toString() };
-          } catch {
-            return { valid: false, reason: "invalid target" };
-          }
-        },
-      };
-    }
+    if (specifier === "../../../lib/targets/contracts") return targetContracts;
     if (specifier === "../../../lib/targets/quantity") {
       return {
         effectiveQuantityRange: (min, max, providerMin, providerMax) => ({
@@ -265,6 +252,8 @@ function loadPost({ db, authenticatedUser = { id: userId } } = {}) {
         quantityInRange: (quantity, range) => Number.isSafeInteger(quantity) && quantity >= range.min && quantity <= range.max,
       };
     }
+    if (specifier === "../../../lib/posthog/server") return { captureServerEvent() {} };
+    if (specifier === "../../../lib/posthog/logs") return { flushPostHogLogs() {}, logPostHogInfo() {} };
     throw new Error(`Unexpected route import in test: ${specifier}`);
   };
   vm.runInNewContext(compiledRoute, {
@@ -280,7 +269,7 @@ function loadPost({ db, authenticatedUser = { id: userId } } = {}) {
 const key = (digit) => `00000000-0000-4000-8000-${String(digit).padStart(12, "0")}`;
 const legacyBody = (overrides = {}) => ({
   service_id: serviceId,
-  target_value: "https://instagram.com/example-user/",
+  target_value: "https://instagram.com/p/example-post/",
   quantity: 10,
   ...overrides,
 });
@@ -323,6 +312,27 @@ async function submit(post, requestKey, body, uid = userId) {
   assert.equal(db.orders.length, 0, "invalid targets do not create orders");
 }
 
+for (const invalidTarget of [
+  "https://www.tiktok.com/@creator/video/1234567890123456789",
+  "https://instagram.com/example-user",
+  "",
+  "not-a-url",
+]) {
+  const db = makeDatabase();
+  const response = await submit(loadPost({ db }), key(40 + invalidTarget.length), legacyBody({ target_value: invalidTarget }));
+  assert.equal(response.status, 400, `the server rejects invalid configured targets: ${invalidTarget || "empty"}`);
+  assert.equal(db.orders.length, 0, "invalid target requests cannot create orders");
+}
+
+{
+  const db = makeDatabase({
+    currentService: { ...service, target_type: "channel" },
+  });
+  const response = await submit(loadPost({ db }), key(50), legacyBody());
+  assert.equal(response.status, 400, "conflicting admin platform/target configuration is rejected");
+  assert.equal(db.orders.length, 0, "unsupported admin configuration cannot create an order");
+}
+
 {
   const db = makeDatabase();
   const post = loadPost({ db });
@@ -330,10 +340,10 @@ async function submit(post, requestKey, body, uid = userId) {
   const fieldQueryCount = db.dynamicFieldQueries.length;
   const replay = await submit(post, key(2), legacyBody({
     service_id: serviceId.toUpperCase(),
-    target_value: "https://instagram.com/example-user",
+    target_value: "https://instagram.com/p/example-post/",
   }));
   assert.equal(first.status, 201);
-  assert.equal(replay.status, 200, "a normalized equivalent intent is replayed");
+  assert.equal(replay.status, 200, "an identical validated intent is replayed");
   assert.equal(replay.body.id, first.body.id);
   assert.equal(db.orders.length, 1);
   assert.equal(db.dynamicFieldQueries.length, fieldQueryCount, "matching replays return before additional schema reads");
@@ -458,7 +468,7 @@ async function submit(post, requestKey, body, uid = userId) {
 for (const changed of [
   legacyBody({ service_id: "another-service" }),
   legacyBody({ quantity: 11 }),
-  legacyBody({ target_value: "https://instagram.com/another-user" }),
+  legacyBody({ target_value: "https://instagram.com/p/another-post" }),
 ]) {
   const db = makeDatabase();
   const post = loadPost({ db });
@@ -511,12 +521,12 @@ for (const changed of [
 {
   const db = makeDatabase({ activeDynamicFields: 1 });
   const post = loadPost({ db });
-  const body = { service_id: serviceId, quantity: 10, input_values: { username: " alice " } };
+  const body = { service_id: serviceId, quantity: 10, input_values: { target: " https://instagram.com/p/example-post/ " } };
   const created = await submit(post, key(8), body);
   const fieldQuery = db.dynamicFieldQueries[0];
   db.setCurrentService(null);
   db.setDynamicFieldCount(0);
-  const replay = await submit(post, key(8), { ...body, input_values: { username: "alice" } });
+  const replay = await submit(post, key(8), { ...body, input_values: { target: "https://instagram.com/p/example-post/" } });
   assert.equal(created.status, 201);
   assert.equal(replay.status, 200, "stored dynamic-input schema supports recovery after catalog changes");
   assert.equal(replay.body.id, created.body.id);
@@ -528,11 +538,47 @@ for (const changed of [
 
 {
   const db = makeDatabase({ activeDynamicFields: 1 });
+  const response = await submit(loadPost({ db }), key(51), {
+    service_id: serviceId,
+    quantity: 10,
+    input_values: { target: "https://instagram.com/example-user" },
+  });
+  assert.equal(response.status, 400, "dynamic inputs are checked against the configured service target type");
+  assert.equal(db.orders.length, 0, "invalid dynamic targets cannot create orders");
+}
+
+for (const mappingRows of [
+  [],
+  [{
+    provider: "reliablesmm",
+    provider_service_id: "2037",
+    provider_parameter_key: "link",
+    transform_id: "trim",
+    transform_version: 1,
+    service_input_fields: { key: "target" },
+  }],
+]) {
+  const db = makeDatabase({
+    activeDynamicFields: 1,
+    mappingRows,
+    currentService: { ...service, provider: "reliablesmm", provider_service_id: "2037" },
+  });
+  const response = await submit(loadPost({ db }), key(52 + mappingRows.length), {
+    service_id: serviceId,
+    quantity: 10,
+    input_values: { target: "https://instagram.com/p/example-post/" },
+  });
+  assert.equal(response.status, 400, "missing or unsupported link mapping configuration is rejected");
+  assert.equal(db.orders.length, 0, "invalid ReliableSMM target mapping cannot create an order");
+}
+
+{
+  const db = makeDatabase({ activeDynamicFields: 1 });
   const post = loadPost({ db });
   const response = await submit(post, key(13), {
     service_id: serviceId,
     quantity: 10,
-    input_values: { username: "alice" },
+    input_values: { target: "https://instagram.com/p/example-post/" },
   });
   assert.equal(response.status, 201);
   assert.equal(db.dynamicFieldQueries.length, 1);
@@ -559,7 +605,7 @@ for (const changed of [
     user_id: "user-1",
     service_id: serviceId,
     quantity: 10,
-    target_value: "https://www.instagram.com/example-user",
+    target_value: "https://www.instagram.com/p/example-post",
     target_type: "url",
     unit_price: "2.50",
     subtotal: "25.00",

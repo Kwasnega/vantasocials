@@ -45,8 +45,7 @@ export default async function AccountOrdersPage({
     const escapedQ = escapePostgrestSearchTerm(q);
     let serviceIds = "";
     if (q.length >= 3) {
-      const { data: matchingServices, error: serviceSearchError } = await db
-        .from("services")
+      const { data: matchingServices, error: serviceSearchError } = await db.from("services")
         .select("id")
         .ilike("name", `%${q}%`)
         .limit(50);
@@ -58,8 +57,7 @@ export default async function AccountOrdersPage({
     query = query.or(parts.join(","));
   }
 
-  const { data: orders, count, error: ordersError } = await query
-    .order("created_at", { ascending: false })
+  const { data: orders, count, error: ordersError } = await query.order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
   if (ordersError) throw ordersError;
 

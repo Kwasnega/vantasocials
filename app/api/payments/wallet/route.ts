@@ -2,7 +2,9 @@ import { after, NextResponse } from "next/server";
 import { createSupabaseAdminClient, getCurrentUser } from "../../../../lib/supabase/server";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
 import { assertPayableOrderTotal } from "../../../../lib/pricing/customer-price";
+import { validateConfiguredOrderTarget } from "../../../../lib/targets/contracts";
 import { captureServerEvent } from "../../../../lib/posthog/server";
+import { dispatchPaidOrder } from "../../../../lib/fulfillment/dispatch-paid-order";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -20,7 +22,7 @@ export async function POST(request: Request) {
   try {
     const admin = createSupabaseAdminClient();
     const { data: order, error: orderError } = await admin.from("orders")
-      .select("id,public_order_id,user_id,status,payment_status,fulfillment_status,total,currency")
+      .select("id,public_order_id,user_id,status,payment_status,fulfillment_status,total,currency,target_type,target_value,input_schema_snapshot,input_values,services(target_type,platforms(slug))")
       .eq("public_order_id", orderId)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -35,6 +37,20 @@ export async function POST(request: Request) {
     if (order.fulfillment_status !== "NOT_STARTED") return NextResponse.json({ error: "Order is not available for wallet payment." }, { status: 409 });
     if (order.payment_status === "PAID") return NextResponse.json(order);
     if (order.status !== "PENDING_PAYMENT" || order.payment_status !== "UNPAID") return NextResponse.json({ error: "Order is not available for wallet payment." }, { status: 409 });
+    const service = Array.isArray(order.services) ? order.services[0] : order.services;
+    const rawPlatform = service?.platforms;
+    const platform = Array.isArray(rawPlatform) ? rawPlatform[0] : rawPlatform;
+    if (!service || service.target_type !== order.target_type) {
+      return NextResponse.json({ error: "The service target configuration changed. Please create a new order or contact support." }, { status: 409 });
+    }
+    const targetValidation = validateConfiguredOrderTarget({
+      platformSlug: platform?.slug,
+      targetType: order.target_type,
+      targetValue: order.target_value,
+      inputSchemaSnapshot: order.input_schema_snapshot,
+      inputValues: order.input_values,
+    });
+    if (!targetValidation.valid) return NextResponse.json({ error: targetValidation.reason }, { status: 409 });
 
     const reference = `wallet-order:${order.id}`;
     const { data: debit, error: debitError } = await admin.rpc("debit_wallet_for_order", { p_order_id: order.id, p_reference: reference });
@@ -48,6 +64,14 @@ export async function POST(request: Request) {
       total: order.total,
       currency: order.currency,
     }));
+    after(async () => {
+      try {
+        const dispatch = await dispatchPaidOrder(order.id);
+        console.info(JSON.stringify({ event: "paid_order_fulfillment_dispatch", orderId: order.id, outcome: dispatch.outcome }));
+      } catch {
+        console.error(JSON.stringify({ event: "paid_order_fulfillment_dispatch_failed", orderId: order.id }));
+      }
+    });
     return NextResponse.json({
       order: {
         public_order_id: order.public_order_id,

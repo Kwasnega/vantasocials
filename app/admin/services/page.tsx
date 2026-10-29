@@ -185,6 +185,21 @@ export default async function AdminServicesPage() {
     catalogError = Boolean(error);
     if (data) catalogById = new Map(data.map((row) => [String(row.provider_service_id), row]));
   }
+  const dynamicMappingServiceIds = rawServices.map((service) => service.id);
+  let reviewedDynamicMappings = new Set<string>();
+  let dynamicMappingsError = false;
+  if (dynamicMappingServiceIds.length) {
+    const { data: mappings, error } = await db
+      .from("service_provider_input_mappings")
+      .select("service_id,provider_service_id")
+      .in("service_id", dynamicMappingServiceIds)
+      .eq("provider", "reliablesmm")
+      .eq("active", true);
+    dynamicMappingsError = Boolean(error);
+    if (mappings) {
+      reviewedDynamicMappings = new Set(mappings.map((mapping) => `${mapping.service_id}:${mapping.provider_service_id}`));
+    }
+  }
   const services = rawServices.map((service): Service => {
     const catalog = service.provider_service_id ? catalogById.get(service.provider_service_id) : undefined;
     const economicsRate = catalog?.provider_rate ?? service.provider_rate;
@@ -192,6 +207,18 @@ export default async function AdminServicesPage() {
     const economicsCurrency = catalog?.provider_currency ?? service.provider_currency;
     let eligibility = !service.provider ? "NOT MAPPED" : catalogError ? "UNKNOWN · catalog lookup failed" : "UNKNOWN · catalog row unavailable";
     if (catalog) {
+      if (dynamicMappingsError) {
+        return {
+          ...service,
+          catalog_status: catalog.provider_status,
+          catalog_updated_at: catalog.last_synced_at,
+          economics_rate: economicsRate,
+          economics_unit: economicsUnit,
+          economics_currency: economicsCurrency,
+          economics_source: "provider catalog",
+          eligibility: "UNKNOWN · input mapping lookup failed",
+        };
+      }
       const compatibility = resolveProviderCompatibility(catalog.raw_metadata, catalog.name);
       const platform = service.platforms as { slug?: string; name?: string } | null;
       const platformCompatibility = resolveProviderPlatformCompatibility(catalog.raw_metadata, platform, catalog.name);
@@ -199,7 +226,8 @@ export default async function AdminServicesPage() {
       const assessed = assessProviderEligibility({
         serviceSlug: service.slug,
         targetContract: getTargetContractForService({ slug: service.slug, targetType: service.target_type, platformSlug: platform?.slug }),
-        operationCompatibilityVerified: matchesApprovedProviderOperation(service.slug, service.provider_service_id ?? "", catalog.name, String(metadata?.category ?? "")),
+        operationCompatibilityVerified: matchesApprovedProviderOperation(service.slug, service.provider_service_id ?? "", catalog.name, String(metadata?.category ?? "")) ||
+          reviewedDynamicMappings.has(`${service.id}:${service.provider_service_id}`),
         expectedTargetType: service.target_type,
         providerTargetType: compatibility.compatibility?.targetType,
         platformCompatibilityState: platformCompatibility.state,

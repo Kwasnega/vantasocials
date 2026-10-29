@@ -16,7 +16,7 @@ const catalogApi = read("app/api/admin/provider-catalog/route.ts");
 const syncApi = read("app/api/admin/providers/reliablesmm/sync/route.ts");
 
 assert.match(overview, /walletCount/);
-assert.match(overview, /\.limit\(1000\)/);
+assert.match(overview, /\.limit\(100\)/);
 assert.match(overview, /not total liability/);
 assert.doesNotMatch(overview, /Available liability across customer wallets/);
 assert.match(overview, /walletsError \?/);
@@ -32,6 +32,8 @@ assert.doesNotMatch(wallet, /Wallet liability/);
 assert.match(provider, /healthError \?/);
 assert.match(provider, /catalogError \?/);
 assert.match(provider, /syncError \?/);
+assert.match(overview, /import BalanceRefresh from "\.\/providers\/BalanceRefresh"/);
+assert.match(overview, /<BalanceRefresh label="Reload balance" \/>/);
 assert.match(catalog, /error \? <AdminQueryError/);
 assert.match(candidateControl, /candidateLoadError/);
 assert.match(candidateControl, /Pricing data could not be loaded/);

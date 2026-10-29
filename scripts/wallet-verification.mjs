@@ -18,6 +18,7 @@ const checks = [
   [hardening.includes("reconcile_wallet") && hardening.includes("REFUND"), "reconciliation and refund operations"],
   [hardening.includes("WALLET_LEDGER_IMMUTABLE") && hardening.includes("refund_wallet_order"), "immutable idempotent refund path"],
   [api.includes("balance_minor") && !api.includes("entries"), "projected customer balance"],
+  [fs.readFileSync("app/api/payments/wallet/route.ts", "utf8").includes("after(async () =>") && fs.readFileSync("app/api/payments/wallet/route.ts", "utf8").includes("dispatchPaidOrder(order.id)"), "wallet payment schedules paid-order fulfillment"],
   [adminApi.includes("balance_minor") && !adminApi.includes("wallet_balance_minor"), "set-based admin balances"],
   [hardening.includes("revoke all on function public.apply_wallet_transaction_projection()"), "projection function is not application-callable"],
   [hardening.includes("wallet_id = target_wallet.id") && hardening.includes("refund_wallet_order"), "refund wallet ownership validation"],

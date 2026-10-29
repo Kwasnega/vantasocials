@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { formatOrderInputValue } from "../../../../lib/orders/display-input-values";
 import { buildOrderTimeline, formatOrderTimelineStatus } from "../../../../lib/orders/timeline";
+import OrderStatusRefresh from "../../../../components/orders/OrderStatusRefresh";
 
 function getPaymentDescription(status: string) {
   switch (status) {
@@ -27,19 +28,20 @@ function getFulfillmentDescription(status: string, paid: boolean) {
   switch (status) {
     case "NOT_STARTED":
       return paid
-        ? "Payment is confirmed. Your order is waiting to be picked up for fulfillment."
+        ? "Payment is confirmed. Your order is queued and will be submitted automatically within moments."
         : "Fulfillment will begin after payment is confirmed.";
     case "SUBMITTING":
-      return "Your order is being sent to the fulfillment provider.";
+      return "Your order has been submitted to fulfillment and is awaiting dispatch confirmation.";
     case "SUBMITTED":
+      return "Order confirmed by the fulfillment provider. Work is preparing to start.";
     case "PROCESSING":
-      return "Your order is in progress.";
+      return "Your order is actively in progress.";
     case "COMPLETED":
-      return "Your order has been completed.";
+      return "Your order has been successfully completed.";
     case "PARTIAL":
-      return "Some, but not all, of the requested order has been completed.";
+      return "Part of the requested quantity was delivered. The remainder has been settled.";
     case "FAILED":
-      return "The order could not be completed. Contact support for help.";
+      return "We are processing an issue with your order fulfillment. Our support team is attending to it.";
     case "CANCELLED":
       return "This order has been cancelled.";
     default:
@@ -60,11 +62,13 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
 
   const paid = order.payment_status === "PAID";
   const service = order.services as { name?: string; platforms?: { name?: string } | null } | null;
+
   const [
     { data: payments, error: paymentsError },
     { data: walletTransactions, error: walletTransactionsError },
     { data: providerAttempts, error: providerAttemptsError },
     { data: orderProviderEvents, error: orderProviderEventsError },
+    { data: customerStatus, error: customerStatusError },
   ] = await Promise.all([
     db.from("payments")
       .select("id,provider,status,created_at,paid_at,updated_at")
@@ -87,11 +91,19 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
       .eq("order_id", order.id)
       .order("created_at", { ascending: false })
       .limit(100),
+    db.from("customer_provider_order_status")
+      .select("status,start_count,remains,created_at,updated_at")
+      .eq("order_id", order.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+
   if (paymentsError) throw paymentsError;
   if (walletTransactionsError) throw walletTransactionsError;
   if (providerAttemptsError) throw providerAttemptsError;
   if (orderProviderEventsError) throw orderProviderEventsError;
+  if (customerStatusError) console.warn("Could not query customer_provider_order_status:", customerStatusError);
 
   const providerAttemptIds = (providerAttempts ?? []).map((attempt) => attempt.id);
   let attemptProviderEvents: typeof orderProviderEvents = [];
@@ -113,14 +125,37 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
     providerAttempts: providerAttempts ?? [],
     providerEvents: [...(orderProviderEvents ?? []), ...attemptProviderEvents],
   });
+
   const inputValues = order.input_values && typeof order.input_values === "object" && !Array.isArray(order.input_values)
     ? Object.entries(order.input_values as Record<string, unknown>)
     : [];
+
   const paymentLabel = formatOrderTimelineStatus(order.payment_status);
   const fulfillmentLabel = formatOrderTimelineStatus(order.fulfillment_status);
 
+  // Safe Progress calculations
+  const startCount = typeof customerStatus?.start_count === "number" ? customerStatus.start_count : null;
+  const remains = typeof customerStatus?.remains === "number" ? customerStatus.remains : null;
+  let progressPercent: number | null = null;
+  let deliveredCount: number | null = null;
+
+  if (order.fulfillment_status === "COMPLETED") {
+    progressPercent = 100;
+    deliveredCount = order.quantity;
+  } else if (remains !== null && order.quantity > 0) {
+    deliveredCount = Math.max(0, order.quantity - remains);
+    progressPercent = Math.min(100, Math.max(0, Math.round((deliveredCount / order.quantity) * 100)));
+  }
+
+  const lastUpdatedTime = customerStatus?.updated_at ?? order.updated_at;
+
   return (
     <div className="order-detail-page">
+      <OrderStatusRefresh
+        publicOrderId={order.public_order_id}
+        paymentStatus={order.payment_status}
+        fulfillmentStatus={order.fulfillment_status}
+      />
       <Link className="order-detail-back" href="/account/orders">
         <span aria-hidden="true">←</span> All orders
       </Link>
@@ -164,6 +199,39 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
               <span className="order-detail-label">FULFILLMENT</span>
               <h2>{fulfillmentLabel}</h2>
               <p>{getFulfillmentDescription(order.fulfillment_status, paid)}</p>
+
+              {progressPercent !== null && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#a99bb2", marginBottom: 4 }}>
+                    <span>Progress: {progressPercent}%</span>
+                    {deliveredCount !== null && (
+                      <span>{deliveredCount.toLocaleString()} / {order.quantity.toLocaleString()} delivered</span>
+                    )}
+                  </div>
+                  <div style={{ height: 6, background: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${progressPercent}%`,
+                        height: "100%",
+                        background: "linear-gradient(90deg, #9146ff, #00f0ff)",
+                        transition: "width 0.5s ease",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {startCount !== null && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "#a99bb2" }}>
+                  <span>Initial count recorded: {startCount.toLocaleString()}</span>
+                </div>
+              )}
+
+              {lastUpdatedTime && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "#776c82" }}>
+                  Status as of: {new Date(lastUpdatedTime).toLocaleString()}
+                </div>
+              )}
             </div>
           </article>
         </div>

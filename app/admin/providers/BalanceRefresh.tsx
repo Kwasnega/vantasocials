@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-export default function BalanceRefresh() {
+export default function BalanceRefresh({ label = "Refresh balance" }: { label?: string }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const router = useRouter();
@@ -20,5 +20,17 @@ export default function BalanceRefresh() {
       setBusy(false);
     }
   }
-  return <div><button type="button" onClick={refresh} disabled={busy}>{busy ? "Refreshing…" : "Refresh balance"}</button>{message && <small role="status">{message}</small>}</div>;
+  return (
+    <div style={{ display: "grid", justifyItems: "start", gap: 6, marginTop: 12 }}>
+      <button
+        type="button"
+        onClick={refresh}
+        disabled={busy}
+        style={{ padding: "9px 13px", border: 0, borderRadius: 9, color: "#170529", background: "#d883ff", font: "inherit", fontSize: 12, fontWeight: 800, cursor: busy ? "wait" : "pointer" }}
+      >
+        {busy ? "Refreshing…" : label}
+      </button>
+      {message && <small role="status">{message}</small>}
+    </div>
+  );
 }

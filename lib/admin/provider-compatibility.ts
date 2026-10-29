@@ -78,8 +78,8 @@ export function resolveProviderCompatibility(rawMetadata: unknown, name?: string
   if (platform.contradictory || target.contradictory) {
     return { state: "MISSING_METADATA", reason: "Provider platform or target metadata is contradictory." };
   }
-  if (!name?.trim() || !category.trim()) {
-    return { state: "MISSING_METADATA", reason: "Provider service name and category metadata are required." };
+  if (!name?.trim()) {
+    return { state: "MISSING_METADATA", reason: "Provider service name metadata is required." };
   }
   if (!resolvedPlatform) {
     return { state: "MISSING_METADATA", reason: "Provider platform could not be determined from catalog metadata." };
@@ -125,8 +125,8 @@ export function resolveProviderPlatformCompatibility(rawMetadata: unknown, vanta
   if (declared.contradictory) return { state: "MISSING_METADATA", reason: "Provider platform metadata is contradictory." };
   const category = typeof metadata.category === "string" ? metadata.category : "";
   const providerPlatform = declared.value ?? detectPlatformFromText(`${name ?? ""} ${category}`);
-  if (!name?.trim() || !category.trim() || !providerPlatform || !vantaPlatform) {
-    return { state: "MISSING_METADATA", reason: "Provider service name, category, and explicit platform metadata are required." };
+  if (!name?.trim() || !providerPlatform || !vantaPlatform) {
+    return { state: "MISSING_METADATA", reason: "Provider service name or VANTA platform metadata is unavailable." };
   }
   if (!sameProviderPlatform(providerPlatform, vantaPlatform)) return { state: "PLATFORM_MISMATCH", reason: "Provider platform does not match the VANTA platform." };
   return {

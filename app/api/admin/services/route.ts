@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireAdmin } from "../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/server";
+import { enforceAdminRateLimit, limiterUnavailable } from "../../../../lib/security/rate-limit";
 import { validateCreateServiceInput } from "../../../../lib/admin/service-creation";
 import {
   matchesApprovedProviderOperation,
@@ -14,6 +16,13 @@ export async function POST(request: Request) {
   const { user, admin } = await requireAdmin();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+
+  try {
+    const rejected = await enforceAdminRateLimit(request, user.id, "service-mutation", [30, 30]);
+    if (rejected) return rejected;
+  } catch {
+    return limiterUnavailable();
+  }
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -127,11 +136,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unable to create service." }, { status: 500 });
   }
 
-  if (!providerServiceId) return NextResponse.json({
-    service,
-    sellingPricePer1000: input.sellingPricePer1000,
-    sellingRateUnit: "GHS_PER_UNIT",
-  }, { status: 201 });
+  if (!providerServiceId) {
+    try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
+    return NextResponse.json({
+      service,
+      sellingPricePer1000: input.sellingPricePer1000,
+      sellingRateUnit: "GHS_PER_UNIT",
+    }, { status: 201 });
+  }
 
   const { data: mapping, error: mappingError } = await db.rpc("apply_provider_mapping", {
     p_service_id: service.id,
@@ -182,6 +194,7 @@ export async function POST(request: Request) {
     }, { status: 500 });
   }
 
+  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
   return NextResponse.json({
     service: persisted,
     mapping: mappingResult,

@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
+import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../lib/security/rate-limit";
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ serviceId: string }> }
 ) {
   const { user, admin } = await requireAdmin();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+
+  try {
+    const rejected = await enforceAdminRateLimit(request, user.id, "service-delete", [30, 30]);
+    if (rejected) return rejected;
+  } catch {
+    return limiterUnavailable();
+  }
 
   const { serviceId } = await params;
   if (!serviceId) {
@@ -16,8 +25,10 @@ export async function DELETE(
   }
 
   const db = createSupabaseAdminClient();
+  // Use count: "exact" for all dependency guards — we need reliable counts to decide whether
+  // to hard-delete or soft-deactivate the service. A count: "planned" estimate is not safe here.
   const [service, orders, inputFields, inputMappings, pricingAudit, mappingAudit] = await Promise.all([
-    db.from("services").select("id,provider,provider_service_id").eq("id", serviceId).maybeSingle(),
+    db.from("services").select("id,active,provider,provider_service_id").eq("id", serviceId).maybeSingle(),
     db.from("orders").select("id", { count: "exact", head: true }).eq("service_id", serviceId),
     db.from("service_input_fields").select("id", { count: "exact", head: true }).eq("service_id", serviceId),
     db.from("service_provider_input_mappings").select("id", { count: "exact", head: true }).eq("service_id", serviceId),
@@ -43,7 +54,16 @@ export async function DELETE(
     Boolean(service.data.provider || service.data.provider_service_id);
 
   if (hasProtectedDependencies) {
-    const { data: service, error: updateError } = await db
+    // No-op check: if the service is already inactive, return immediately
+    if (service.data.active === false) {
+      return NextResponse.json({
+        deleted: false,
+        deactivated: true,
+        message: "Service was already deactivated.",
+      });
+    }
+
+    const { data: updatedService, error: updateError } = await db
       .from("services")
       .update({ active: false })
       .eq("id", serviceId)
@@ -53,8 +73,9 @@ export async function DELETE(
     if (updateError) {
       return NextResponse.json({ error: "Service has protected history or configuration and could not be deactivated." }, { status: 500 });
     }
-    if (!service) return NextResponse.json({ error: "Service not found." }, { status: 404 });
+    if (!updatedService) return NextResponse.json({ error: "Service not found." }, { status: 404 });
 
+    try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
     return NextResponse.json({
       deleted: false,
       deactivated: true,
@@ -78,5 +99,6 @@ export async function DELETE(
   }
   if (!deleted) return NextResponse.json({ error: "Service not found." }, { status: 404 });
 
+  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
   return NextResponse.json({ deleted: true });
 }

@@ -1,9 +1,11 @@
 import "server-only";
 
+import { after } from "next/server";
 import { createSupabaseAdminClient } from "../supabase/server";
 import { verifyPaystack, amountToMinorUnits } from "./paystack";
 import { assertPayableOrderTotal } from "../pricing/customer-price";
 import { captureServerEvent } from "../posthog/server";
+import { dispatchPaidOrder } from "../fulfillment/dispatch-paid-order";
 
 type PaystackVerificationResponse = Awaited<ReturnType<typeof verifyPaystack>>;
 
@@ -43,6 +45,14 @@ export async function verifyAndSettlePaystack(
       payment_method: "paystack",
       total: order.total,
       currency: order.currency,
+    });
+    after(async () => {
+      try {
+        const dispatch = await dispatchPaidOrder(order.id);
+        console.info(JSON.stringify({ event: "paid_order_fulfillment_dispatch", orderId: order.id, outcome: dispatch.outcome }));
+      } catch {
+        console.error(JSON.stringify({ event: "paid_order_fulfillment_dispatch_failed", orderId: order.id }));
+      }
     });
   }
   return { found: true, paid };

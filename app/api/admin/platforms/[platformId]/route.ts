@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../lib/security/rate-limit";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
@@ -68,5 +69,6 @@ export async function DELETE(
     );
   }
 
+  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
   return NextResponse.json({ deleted: data });
 }

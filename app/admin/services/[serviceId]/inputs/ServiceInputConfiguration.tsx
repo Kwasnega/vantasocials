@@ -6,6 +6,101 @@ import { VANTA_INPUT_TYPES } from "../../../../../lib/inputs/contracts";
 import { TRANSFORM_REGISTRY } from "../../../../../lib/inputs/transforms";
 import { extractApprovedProviderParameters } from "../../../../../lib/admin/service-input-config";
 
+const validationDefaults = {
+  username: { maxLength: 64 },
+  url: { maxLength: 2048 },
+  post_url: { maxLength: 2048 },
+  video_url: { maxLength: 2048 },
+  channel: { maxLength: 2048 },
+  page: { maxLength: 2048 },
+  comments: { maxLength: 10000, maxLines: 100, maxLineLength: 500 },
+} as const;
+
+const validationSuggestions = {
+  username: { maxLength: [16, 32, 64] },
+  url: { maxLength: [255, 512, 1024, 2048] },
+  post_url: { maxLength: [255, 512, 1024, 2048] },
+  video_url: { maxLength: [255, 512, 1024, 2048] },
+  channel: { maxLength: [255, 512, 1024, 2048] },
+  page: { maxLength: [255, 512, 1024, 2048] },
+  comments: { maxLength: [1000, 5000, 10000], maxLines: [10, 25, 50, 100], maxLineLength: [100, 250, 500] },
+} as const;
+
+function getFieldSuggestions(inputType: string, platformSlug: string | undefined) {
+  const examples: Record<string, Partial<Record<string, string>>> = {
+    instagram: {
+      url: "https://www.instagram.com/username/",
+      post_url: "https://www.instagram.com/p/POST_ID/",
+      video_url: "https://www.instagram.com/reel/REEL_ID/",
+    },
+    tiktok: {
+      url: "https://www.tiktok.com/@username",
+      post_url: "https://www.tiktok.com/@username/video/VIDEO_ID",
+      video_url: "https://www.tiktok.com/@username/video/VIDEO_ID",
+    },
+    youtube: {
+      url: "https://www.youtube.com/@CHANNEL_HANDLE",
+      channel: "https://www.youtube.com/@CHANNEL_HANDLE",
+      video_url: "https://www.youtube.com/watch?v=VIDEO_ID",
+    },
+  };
+  const targetExample = examples[platformSlug ?? ""]?.[inputType];
+
+  switch (inputType) {
+    case "username":
+      return {
+        keys: ["username", "profile_username"],
+        labels: ["Username", "Profile username"],
+        placeholders: ["@username"],
+        helpTexts: ["Enter the account username."],
+      };
+    case "url":
+      return {
+        keys: ["target_url", "profile_url"],
+        labels: ["Target URL", "Profile URL"],
+        placeholders: targetExample ? [targetExample] : [],
+        helpTexts: ["Enter the full target URL."],
+      };
+    case "post_url":
+      return {
+        keys: ["post_url", "target_url"],
+        labels: ["Post URL", "Target post URL"],
+        placeholders: targetExample ? [targetExample] : [],
+        helpTexts: ["Enter the full URL of the post."],
+      };
+    case "video_url":
+      return {
+        keys: ["video_url", "target_url"],
+        labels: ["Video URL", "Target video URL"],
+        placeholders: targetExample ? [targetExample] : [],
+        helpTexts: ["Enter the full URL of the video."],
+      };
+    case "channel":
+      return {
+        keys: ["channel_url"],
+        labels: ["Channel URL"],
+        placeholders: targetExample ? [targetExample] : [],
+        helpTexts: ["Enter the full URL of the channel."],
+      };
+    case "page":
+      return {
+        keys: ["page_url"],
+        labels: ["Page URL"],
+        placeholders: targetExample ? [targetExample] : [],
+        helpTexts: ["Enter the full URL of the page."],
+      };
+    case "comments":
+      return {
+        keys: ["comments"],
+        labels: ["Comments"],
+        placeholders: ["Enter one comment per line"],
+        helpTexts: ["Enter one comment per line."],
+      };
+    default:
+      return { keys: [], labels: [], placeholders: [], helpTexts: [] };
+  }
+}
+
 /* ─── Design tokens ─────────────────────────────────────────────── */
 const inp: React.CSSProperties = {
   width: "100%", minHeight: "44px", padding: "0 14px",
@@ -15,10 +110,6 @@ const inp: React.CSSProperties = {
 };
 const sel: React.CSSProperties = {
   ...inp, cursor: "pointer", appearance: "auto" as const,
-};
-const tex: React.CSSProperties = {
-  ...inp, minHeight: "80px", padding: "10px 14px",
-  resize: "vertical" as const, lineHeight: "1.5",
 };
 const lbl: React.CSSProperties = {
   display: "grid", gap: "6px", fontSize: "12px",
@@ -70,6 +161,7 @@ export function ServiceInputConfiguration({
   const [localFields, setLocalFields] = useState(fields);
   const [localMappings, setLocalMappings] = useState(mappings);
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
+  const [eligibility, setEligibility] = useState<{ status: string; reason: string } | null>(null);
   const [fieldForm, setFieldForm] = useState(fieldDefaults);
   const [mappingForm, setMappingForm] = useState({
     serviceInputFieldId: fields[0]?.id ?? "",
@@ -78,6 +170,7 @@ export function ServiceInputConfiguration({
     transformVersion: 1, providerRequired: true,
     omitWhenBlank: false, schemaVersion: 1, active: true,
   });
+  const platform = service?.platforms;
 
   const catalogOptions = useMemo(() =>
     providerCatalog.map((row) => ({ ...row, parameterKeys: extractApprovedProviderParameters(row.raw_metadata) })),
@@ -86,7 +179,32 @@ export function ServiceInputConfiguration({
 
   const selectedCatalog = catalogOptions.find((r) => r.provider_service_id === mappingForm.providerServiceId) ?? null;
   const fieldChoices = localFields.filter(Boolean);
+  const fieldSuggestionDefaults = getFieldSuggestions(fieldForm.inputType, platform?.slug);
+  const fieldSuggestions = {
+    ...fieldSuggestionDefaults,
+    keys: fieldSuggestionDefaults.keys.filter(
+      (key) => !fieldChoices.some((field) => field.key === key)
+    ),
+  };
+  const fieldOptionListId = `input-field-options-${service.id}`;
+  const displayOrderOptions = Array.from({ length: Math.max(fieldChoices.length + 2, 5) }, (_, index) => index);
+  const selectedField = fieldChoices.find((field) => field.id === mappingForm.serviceInputFieldId) ?? null;
   const hasParams = Boolean(selectedCatalog && selectedCatalog.parameterKeys.length);
+  const linkFieldCompatible = Boolean(
+    selectedField &&
+    (
+      selectedField.input_type === service.target_type ||
+      ((selectedField.input_type === "url" || selectedField.input_type === "post_url") &&
+        (service.target_type === "url" || service.target_type === "post_url"))
+    )
+  );
+  const mappingFormValid = Boolean(
+    fieldChoices.length &&
+    selectedCatalog &&
+    hasParams &&
+    mappingForm.providerParameterKey &&
+    (mappingForm.providerParameterKey !== "link" || linkFieldCompatible)
+  );
 
   function notify(text: string, ok = true) {
     setToast({ text, ok });
@@ -133,7 +251,15 @@ export function ServiceInputConfiguration({
     });
     const body = await r.json().catch(() => ({}));
     if (!r.ok) { notify(body.error ?? "Unable to save mapping.", false); return; }
-    setLocalMappings((c) => [body.mapping, ...c.filter((m) => m.id !== body.mapping.id)]);
+    setLocalMappings((c) => [
+      body.mapping,
+      ...c
+        .filter((m) => m.id !== body.mapping.id)
+        .map((m) => m.provider === body.mapping.provider && m.provider_service_id !== body.mapping.provider_service_id
+          ? { ...m, active: false }
+          : m),
+    ]);
+    if (body.eligibility) setEligibility(body.eligibility);
     notify("Mapping saved.");
   }
 
@@ -147,8 +273,6 @@ export function ServiceInputConfiguration({
     setLocalMappings((c) => c.map((m) => m.id === id ? { ...m, active } : m));
     notify(active ? "Mapping activated." : "Mapping deactivated.");
   }
-
-  const platform = service?.platforms;
 
   return (
     <>
@@ -178,6 +302,37 @@ export function ServiceInputConfiguration({
         </div>
       )}
 
+      <datalist id={`${fieldOptionListId}-key`}>
+        {fieldSuggestions.keys.map((value) => <option key={value} value={value} />)}
+      </datalist>
+      <datalist id={`${fieldOptionListId}-label`}>
+        {fieldSuggestions.labels.map((value) => <option key={value} value={value} />)}
+      </datalist>
+      <datalist id={`${fieldOptionListId}-placeholder`}>
+        {fieldSuggestions.placeholders.map((value) => <option key={value} value={value} />)}
+      </datalist>
+      <datalist id={`${fieldOptionListId}-help`}>
+        {fieldSuggestions.helpTexts.map((value) => <option key={value} value={value} />)}
+      </datalist>
+      <datalist id={`${fieldOptionListId}-display-order`}>
+        {displayOrderOptions.map((value) => <option key={value} value={value} />)}
+      </datalist>
+      <datalist id={`${fieldOptionListId}-max-length`}>
+        {(validationSuggestions[fieldForm.inputType as keyof typeof validationSuggestions]?.maxLength ?? []).map((value) => (
+          <option key={value} value={value} />
+        ))}
+      </datalist>
+      {fieldForm.inputType === "comments" && (
+        <>
+          <datalist id={`${fieldOptionListId}-max-lines`}>
+            {validationSuggestions.comments.maxLines.map((value) => <option key={value} value={value} />)}
+          </datalist>
+          <datalist id={`${fieldOptionListId}-max-line-length`}>
+            {validationSuggestions.comments.maxLineLength.map((value) => <option key={value} value={value} />)}
+          </datalist>
+        </>
+      )}
+
       {/* ── Step 1 + Step 2 side by side ── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: "18px", alignItems: "start", marginTop: "20px" }}>
 
@@ -186,17 +341,18 @@ export function ServiceInputConfiguration({
           <p className="dashboard-kicker" style={{ margin: "0 0 4px" }}>Step 1</p>
           <h2 style={{ margin: "0 0 6px", color: "#fff", fontSize: "18px", fontWeight: 800 }}>Add a VANTA Input Field</h2>
           <p style={{ margin: "0 0 20px", color: "#8f8099", fontSize: "13px" }}>Define what the customer fills out on the order form.</p>
+          <p style={{ margin: "-8px 0 16px", color: "#8f8099", fontSize: "12px" }}>Use the field suggestions for common values, or enter a custom value. Server-side validation remains authoritative.</p>
 
           <form onSubmit={submitField} style={{ display: "grid", gap: "14px" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <label style={lbl}>
                 Key (internal)
-                <input style={inp} value={fieldForm.key} placeholder="e.g. profile_url" required
+                <input style={inp} list={`${fieldOptionListId}-key`} value={fieldForm.key} maxLength={64} placeholder="Choose or enter a valid field key" required
                   onChange={(e) => setFieldForm((c) => ({ ...c, key: e.target.value }))} />
               </label>
               <label style={lbl}>
                 Label (visible to customer)
-                <input style={inp} value={fieldForm.label} placeholder="e.g. Profile URL" required
+                <input style={inp} list={`${fieldOptionListId}-label`} value={fieldForm.label} maxLength={120} placeholder="Choose or enter a customer label" required
                   onChange={(e) => setFieldForm((c) => ({ ...c, label: e.target.value }))} />
               </label>
             </div>
@@ -205,7 +361,10 @@ export function ServiceInputConfiguration({
               <label style={lbl}>
                 Input type
                 <select style={sel} value={fieldForm.inputType}
-                  onChange={(e) => setFieldForm((c) => ({ ...c, inputType: e.target.value }))}>
+                  onChange={(e) => {
+                    const inputType = e.target.value as keyof typeof validationDefaults;
+                    setFieldForm((c) => ({ ...c, inputType, validationConfig: { ...validationDefaults[inputType] } }));
+                  }}>
                   {VANTA_INPUT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </label>
@@ -219,39 +378,43 @@ export function ServiceInputConfiguration({
               </label>
               <label style={lbl}>
                 Display order
-                <input style={inp} type="number" min={0} value={fieldForm.displayOrder} required
+                <input style={inp} type="number" list={`${fieldOptionListId}-display-order`} min={0} step={1} value={fieldForm.displayOrder} required
                   onChange={(e) => setFieldForm((c) => ({ ...c, displayOrder: Number(e.target.value) || 0 }))} />
               </label>
             </div>
 
             <label style={lbl}>
               Placeholder text
-              <input style={inp} value={fieldForm.placeholder} placeholder="e.g. https://instagram.com/yourprofile"
+              <input style={inp} list={`${fieldOptionListId}-placeholder`} value={fieldForm.placeholder} placeholder="Choose or enter a placeholder"
                 onChange={(e) => setFieldForm((c) => ({ ...c, placeholder: e.target.value }))} />
             </label>
 
             <label style={lbl}>
               Help text (shown below input)
-              <textarea style={tex} value={fieldForm.helpText} placeholder="e.g. Enter your full Instagram profile URL" rows={3}
+              <input style={inp} list={`${fieldOptionListId}-help`} value={fieldForm.helpText} placeholder="Choose or enter help text"
                 onChange={(e) => setFieldForm((c) => ({ ...c, helpText: e.target.value }))} />
             </label>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: fieldForm.inputType === "comments" ? "1fr 1fr 1fr" : "1fr", gap: "12px" }}>
               <label style={lbl}>
                 Max length
-                <input style={inp} type="number" min={1} value={fieldForm.validationConfig.maxLength ?? ""}
+                <input style={inp} type="number" list={`${fieldOptionListId}-max-length`} min={1} max={validationDefaults[fieldForm.inputType as keyof typeof validationDefaults].maxLength} step={1} value={fieldForm.validationConfig.maxLength ?? ""}
                   onChange={(e) => setFieldForm((c) => ({ ...c, validationConfig: { ...c.validationConfig, maxLength: Number(e.target.value) || undefined } }))} />
               </label>
-              <label style={lbl}>
-                Max lines
-                <input style={inp} type="number" min={1} value={fieldForm.validationConfig.maxLines ?? ""}
-                  onChange={(e) => setFieldForm((c) => ({ ...c, validationConfig: { ...c.validationConfig, maxLines: Number(e.target.value) || undefined } }))} />
-              </label>
-              <label style={lbl}>
-                Max line length
-                <input style={inp} type="number" min={1} value={fieldForm.validationConfig.maxLineLength ?? ""}
-                  onChange={(e) => setFieldForm((c) => ({ ...c, validationConfig: { ...c.validationConfig, maxLineLength: Number(e.target.value) || undefined } }))} />
-              </label>
+              {fieldForm.inputType === "comments" && (
+                <>
+                  <label style={lbl}>
+                    Max lines
+                    <input style={inp} type="number" list={`${fieldOptionListId}-max-lines`} min={1} max={validationDefaults.comments.maxLines} step={1} value={fieldForm.validationConfig.maxLines ?? ""}
+                      onChange={(e) => setFieldForm((c) => ({ ...c, validationConfig: { ...c.validationConfig, maxLines: Number(e.target.value) || undefined } }))} />
+                  </label>
+                  <label style={lbl}>
+                    Max line length
+                    <input style={inp} type="number" list={`${fieldOptionListId}-max-line-length`} min={1} max={validationDefaults.comments.maxLineLength} step={1} value={fieldForm.validationConfig.maxLineLength ?? ""}
+                      onChange={(e) => setFieldForm((c) => ({ ...c, validationConfig: { ...c.validationConfig, maxLineLength: Number(e.target.value) || undefined } }))} />
+                  </label>
+                </>
+              )}
             </div>
 
             <button type="submit" style={primaryBtn}>+ Save Field</button>
@@ -291,13 +454,20 @@ export function ServiceInputConfiguration({
 
               {selectedCatalog && (
                 <div style={{ padding: "12px 14px", borderRadius: "10px", background: "rgba(216,131,255,.07)", border: "1px solid rgba(216,131,255,.2)", fontSize: "12px", color: "#c0b3ca" }}>
-                  <strong style={{ color: "#d883ff" }}>ReliableSMM</strong> — Approved params:{" "}
+                  <strong style={{ color: "#d883ff" }}>ReliableSMM service #{selectedCatalog.provider_service_id}</strong>
+                  {" — "}{selectedCatalog.name}
+                  {selectedCatalog.provider_currency && ` · ${selectedCatalog.provider_currency}`}
+                  {selectedCatalog.rate_unit && ` · ${selectedCatalog.rate_unit}`}
+                  {Number.isFinite(Number(selectedCatalog.min_quantity)) && Number.isFinite(Number(selectedCatalog.max_quantity)) && ` · quantity ${selectedCatalog.min_quantity}–${selectedCatalog.max_quantity}`}
+                  <div style={{ marginTop: "8px" }}>Available parameters:{" "}
                   {selectedCatalog.parameterKeys.length
                     ? selectedCatalog.parameterKeys.map((k: string) => (
-                      <span key={k} style={{ display: "inline-block", margin: "2px 3px 2px 0", padding: "2px 8px", borderRadius: "6px", background: "#2d1241", color: "#d883ff", fontSize: "11px", fontWeight: 700 }}>{k}</span>
+                      <span key={k} style={{ display: "inline-block", margin: "2px 3px 2px 0", padding: "2px 8px", borderRadius: "6px", background: "#2d1241", color: "#d883ff", fontSize: "11px", fontWeight: 700 }}>{k === "link" ? "link (system-managed target)" : k}</span>
                     ))
-                    : <span style={{ color: "#ff9baa" }}>Metadata insufficient for safe mapping.</span>
-                  }
+                    : <span style={{ color: "#ff9baa" }}>No optional provider parameters are described by catalog metadata.</span>}
+                  </div>
+                  {selectedCatalog.raw_metadata && typeof selectedCatalog.raw_metadata === "object" && !(Array.isArray((selectedCatalog.raw_metadata as any).parameters) || Array.isArray((selectedCatalog.raw_metadata as any).parameter_options) || Array.isArray((selectedCatalog.raw_metadata as any).parameterKeys) || Array.isArray((selectedCatalog.raw_metadata as any).parameter_schema) || Array.isArray((selectedCatalog.raw_metadata as any).fields) || (selectedCatalog.raw_metadata as any).parameter_map)
+                    && <p style={{ margin: "7px 0 0", color: "#a99bb2" }}>Optional parameter schema is unavailable; the standard `link` target is still available for URL fields. Other parameters remain blocked until provider metadata describes them.</p>}
                 </div>
               )}
 
@@ -310,6 +480,16 @@ export function ServiceInputConfiguration({
                     {selectedCatalog.parameterKeys.map((k: string) => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </label>
+              )}
+              {mappingForm.providerParameterKey === "link" && !linkFieldCompatible && (
+                <p style={{ margin: 0, color: "#ff9baa", fontSize: "12px" }}>
+                  `link` requires an input type that matches this VANTA service target (`{service.target_type}`; `url` and `post_url` are compatible).
+                </p>
+              )}
+              {eligibility && (
+                <p role="status" style={{ margin: 0, color: eligibility.status === "ELIGIBLE" ? "#86f415" : "#ffcf7a", fontSize: "13px" }}>
+                  Eligibility: {eligibility.status} — {eligibility.reason}
+                </p>
               )}
 
               <label style={lbl}>
@@ -339,8 +519,8 @@ export function ServiceInputConfiguration({
                 </label>
               </div>
 
-              <button type="submit" style={{ ...primaryBtn, opacity: (!fieldChoices.length || !selectedCatalog || !hasParams) ? 0.45 : 1, cursor: (!fieldChoices.length || !selectedCatalog || !hasParams) ? "not-allowed" : "pointer" }}
-                disabled={!fieldChoices.length || !selectedCatalog || !hasParams}>
+              <button type="submit" style={{ ...primaryBtn, opacity: mappingFormValid ? 1 : 0.45, cursor: mappingFormValid ? "pointer" : "not-allowed" }}
+                disabled={!mappingFormValid}>
                 Save Mapping
               </button>
             </form>

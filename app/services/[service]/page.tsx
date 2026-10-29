@@ -26,6 +26,6 @@ export default async function ServicePage({ params }: { params: Promise<{ servic
       <h1>{service.name}</h1>
       <p>{service.description || `Build momentum with ${service.name.toLowerCase()} through a clear, secure order flow.`}</p>
     </header>
-    <ServiceConfigurator service={service} platform={platform?.name} />
+    <ServiceConfigurator service={service} platform={platform?.name} platformSlug={platform?.slug} />
   </div>;
 }

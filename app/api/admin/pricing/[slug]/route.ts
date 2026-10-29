@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../lib/security/rate-limit";
@@ -23,9 +24,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
   if (readError) return NextResponse.json({ error: "Unable to load service." }, { status: 500 });
   if (!service) return NextResponse.json({ error: "Service not found." }, { status: 404 });
   if (body?.currency !== undefined && body.currency !== service.currency) return NextResponse.json({ error: "Selling currency is server-controlled for this service." }, { status: 400 });
+
+  // No-op check: if the rate matches exactly, return immediately without database update or audit log
+  if (String(service.selling_rate) === String(sellingRatePerUnit)) {
+    return NextResponse.json({ slug, sellingPricePer1000, selling_rate: sellingRatePerUnit, currency: service.currency });
+  }
+
   const { error } = await db.from("services").update({ selling_rate: sellingRatePerUnit }).eq("id", service.id);
   if (error) return NextResponse.json({ error: "Unable to update selling price." }, { status: 500 });
   const audit = await db.from("pricing_audit_log").insert({ service_id: service.id, field: "selling_price", old_value: service.selling_rate, new_value: sellingRatePerUnit, changed_by: user.id });
   if (audit.error) return NextResponse.json({ error: "Price updated, but audit logging failed." }, { status: 500 });
+  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
   return NextResponse.json({ slug, sellingPricePer1000, selling_rate: sellingRatePerUnit, currency: service.currency });
 }

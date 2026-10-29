@@ -41,11 +41,11 @@ const mappingControl = fs.readFileSync("app/admin/services/MappingControl.tsx", 
 const styles = fs.readFileSync("app/globals.css", "utf8");
 assert.match(mappingControl, /selectedIdentity\s*=\s*useRef/);
 assert.match(mappingControl, /selectedIdentity\.current\s*=\s*identity\(row\)/);
-assert.match(mappingControl, /wanted=selectedIdentity\.current/);
-assert.match(mappingControl, /row\.eligibility===\"ELIGIBLE\"/);
+assert.match(mappingControl, /selectedIdentity\.current\s*\?\?/);
+assert.match(mappingControl, /row\.eligibility\s*===\s*["']ELIGIBLE["']/);
 assert.match(mappingControl, /disabled=\{busy\}/);
 assert.match(mappingControl, /disabled={!selected \|\| busy}/);
-assert.match(mappingControl, /selected\.eligibility !== "ELIGIBLE"/);
+assert.match(mappingControl, /selected\.eligibility\s*!==\s*["']ELIGIBLE["']/);
 assert.match(mappingControl, /Unavailable — \$\{row\.eligibility_reason\}/);
 assert.match(mappingControl, /Select a provider service and continue\. Eligibility checks determine whether the mapping can be saved\./);
 assert.match(mappingControl, /createPortal/);

@@ -114,12 +114,20 @@ export async function GET(request: Request) {
 
   const { data: service, error: serviceError } = await db
     .from("services")
-    .select("slug,min_quantity,max_quantity,provider,provider_service_id,target_type,platforms(slug,name)")
+    .select("id,slug,min_quantity,max_quantity,provider,provider_service_id,target_type,platforms(slug,name)")
     .eq("slug", vantaSlug)
     .maybeSingle();
 
   if (serviceError) return NextResponse.json({ error: "VANTA service lookup failed." }, { status: 500 });
   if (!service) return NextResponse.json({ error: "VANTA service not found." }, { status: 404 });
+  const { data: configuredMappings, error: configuredMappingsError } = await db
+    .from("service_provider_input_mappings")
+    .select("provider_service_id")
+    .eq("service_id", service.id)
+    .eq("provider", "reliablesmm")
+    .eq("active", true);
+  if (configuredMappingsError) return NextResponse.json({ error: "Saved provider input mappings could not be checked." }, { status: 500 });
+  const explicitlyMappedServiceIds = new Set((configuredMappings ?? []).map((mapping) => String(mapping.provider_service_id)));
 
   const platform = service.platforms as { slug?: string; name?: string } | null;
   const targetContract = getTargetContractForService({
@@ -152,7 +160,7 @@ export async function GET(request: Request) {
         String(row.provider_service_id),
         row.name,
         category,
-      ),
+      ) || explicitlyMappedServiceIds.has(String(row.provider_service_id)),
       expectedTargetType: service.target_type,
       providerTargetType: compatibility.compatibility?.targetType,
       platformCompatibilityState: platformCompatibility.state,

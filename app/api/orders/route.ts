@@ -4,7 +4,11 @@ import { createSupabaseAdminClient, getCurrentUser } from "../../../lib/supabase
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../lib/security/rate-limit";
 import { validateDynamicFieldValues, validateDynamicOrderInput } from "../../../lib/orders/dynamic-input-validation";
 import type { CustomerInputField } from "../../../lib/customer/service-contract";
-import { normalizeTarget, normalizeTargetForService, getTargetContract, getTargetContractForService } from "../../../lib/targets/contracts";
+import {
+  getTargetRequirements,
+  normalizeTargetForService,
+  resolveTargetInputField,
+} from "../../../lib/targets/contracts";
 import { effectiveQuantityRange, quantityInRange } from "../../../lib/targets/quantity";
 import { assertPayableOrderTotal, calculateCustomerTotal, normalizeInternalUnitRate } from "../../../lib/pricing/customer-price";
 import { captureServerEvent } from "../../../lib/posthog/server";
@@ -54,6 +58,25 @@ function replayFingerprint(order: Record<string, unknown>, input: Record<string,
     if (!submitted) return null;
     try {
       const validation = validateDynamicFieldValues(order.input_schema_snapshot as CustomerInputField[], submitted);
+      const service = Array.isArray(order.services) ? order.services[0] : order.services;
+      const platform = service && typeof service === "object"
+        ? Array.isArray((service as Record<string, unknown>).platforms)
+          ? ((service as Record<string, unknown>).platforms as Record<string, unknown>[])[0]
+          : (service as Record<string, unknown>).platforms
+        : null;
+      const targetField = resolveTargetInputField(
+        order.input_schema_snapshot as CustomerInputField[],
+        String(order.target_type ?? ""),
+      );
+      if (!targetField.field) return null;
+      const targetValue = validation.validatedValues[targetField.field.key];
+      if (typeof targetValue !== "string") return null;
+      const target = normalizeTargetForService({
+        platformSlug: platform && typeof platform === "object" ? String((platform as Record<string, unknown>).slug ?? "") : "",
+        targetType: String(order.target_type ?? ""),
+        value: targetValue,
+      });
+      if (!target.valid) return null;
       return orderIntentFingerprint({
         service_id: order.service_id,
         quantity: Number(order.quantity),
@@ -64,22 +87,31 @@ function replayFingerprint(order: Record<string, unknown>, input: Record<string,
     }
   }
 
-  if (typeof input.target_value !== "string" || typeof order.idempotency_service_slug !== "string") return null;
+  if (typeof input.target_value !== "string") return null;
   const targetValue = input.target_value.trim();
-  const contract = getTargetContract(order.idempotency_service_slug);
-  const normalized = contract ? normalizeTarget(order.idempotency_service_slug, targetValue) : { valid: true as const, target: targetValue };
-  if (!normalized.valid) return null;
+  const service = Array.isArray(order.services) ? order.services[0] : order.services;
+  const platform = service && typeof service === "object"
+    ? Array.isArray((service as Record<string, unknown>).platforms)
+      ? ((service as Record<string, unknown>).platforms as Record<string, unknown>[])[0]
+      : (service as Record<string, unknown>).platforms
+    : null;
+  const target = normalizeTargetForService({
+    platformSlug: platform && typeof platform === "object" ? String((platform as Record<string, unknown>).slug ?? "") : "",
+    targetType: String(order.target_type ?? ""),
+    value: targetValue,
+  });
+  if (!target.valid) return null;
   return orderIntentFingerprint({
     service_id: order.service_id,
     quantity: Number(order.quantity),
-    target_value: normalized.target,
+    target_value: target.target,
   });
 }
 
 async function findReplay(admin: ReturnType<typeof createSupabaseAdminClient>, userId: string, key: string, input: Record<string, unknown>) {
   const { data: existing, error } = await admin
     .from("orders")
-    .select("id,public_order_id,status,payment_status,fulfillment_status,service_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,created_at,idempotency_key,idempotency_fingerprint,idempotency_service_slug,input_schema_snapshot,input_values")
+    .select("id,public_order_id,status,payment_status,fulfillment_status,service_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,created_at,idempotency_key,idempotency_fingerprint,idempotency_service_slug,input_schema_snapshot,input_values,services(platforms(slug))")
     .eq("user_id", userId)
     .eq("idempotency_key", key)
     .maybeSingle();
@@ -131,6 +163,7 @@ export async function POST(request: Request) {
 
     const platform = Array.isArray(service.platforms) ? service.platforms[0] : service.platforms;
     if (!platform || !platform.active) return NextResponse.json({ error: "Service is not available." }, { status: 409 });
+    const servicePlatform = platform;
 
     const isReliableSmm = service.provider === "reliablesmm" && Boolean(service.provider_service_id);
     const [providerCatalogResult, dynamicFieldsResult] = await Promise.all([
@@ -175,25 +208,62 @@ export async function POST(request: Request) {
       const rawDynamicValues = isPlainObject(input.input_values) ? input.input_values : isPlainObject(input.values) ? input.values : null;
       if (!rawDynamicValues) return NextResponse.json({ error: "input_values object is required for this service." }, { status: 400 });
       dynamicValidation = validateDynamicOrderInput(activeDynamicFields ?? [], rawDynamicValues);
+      const targetRequirements = getTargetRequirements({
+        platformSlug: platform.slug,
+        targetType: service.target_type,
+      });
+      if (!targetRequirements) {
+        return NextResponse.json({ error: "This service has an unsupported or conflicting platform/target configuration. Contact support before ordering." }, { status: 400 });
+      }
+      const targetField = resolveTargetInputField(dynamicValidation.schemaSnapshot as CustomerInputField[], service.target_type);
+      if (!targetField.field) return NextResponse.json({ error: targetField.error }, { status: 400 });
+      const targetValueForValidation = dynamicValidation.validatedValues[targetField.field.key];
+      if (typeof targetValueForValidation !== "string") {
+        return NextResponse.json({ error: `${targetRequirements.description} Example: ${targetRequirements.example}` }, { status: 400 });
+      }
+
+      let targetTransform: { id: string; version: number } | undefined;
+      if (isReliableSmm) {
+        const { data: mappings, error: mappingsError } = await admin
+          .from("service_provider_input_mappings")
+          .select("provider,provider_service_id,provider_parameter_key,transform_id,transform_version,service_input_fields!service_provider_input_mappings_service_field_fk(key)")
+          .eq("service_id", service.id)
+          .eq("provider", "reliablesmm")
+          .eq("active", true);
+        if (mappingsError) throw mappingsError;
+        const linkMappings = (mappings ?? []).filter((mapping) => mapping.provider_parameter_key === "link");
+        const getFieldKey = (mapping: (typeof linkMappings)[number]) => {
+          const field = mapping.service_input_fields as { key: string } | { key: string }[] | null;
+          return Array.isArray(field) ? field.length === 1 ? field[0]?.key : undefined : field?.key;
+        };
+        if (linkMappings.length !== 1) {
+          return NextResponse.json({ error: "ReliableSMM requires exactly one active link mapping for the configured target field." }, { status: 400 });
+        }
+        const linkMapping = linkMappings[0];
+        if (getFieldKey(linkMapping) !== targetField.field.key) {
+          return NextResponse.json({ error: "ReliableSMM requires exactly one active link mapping for the configured target field." }, { status: 400 });
+        }
+        targetTransform = { id: linkMapping.transform_id, version: Number(linkMapping.transform_version) };
+      }
+
+      const targetResult = normalizeTargetForService({
+        platformSlug: platform.slug,
+        targetType: service.target_type,
+        value: targetValueForValidation,
+        transformId: targetTransform?.id,
+        transformVersion: targetTransform?.version,
+      });
+      if (!targetResult.valid) return NextResponse.json({ error: targetResult.reason }, { status: 400 });
       if (!quantityInRange(quantity, quantityRange)) {
         return NextResponse.json({ error: `Quantity must be between ${quantityRange.min} and ${quantityRange.max}.` }, { status: 400 });
       }
     } else {
       if (!targetValue) return NextResponse.json({ error: "target_value and integer quantity are required for legacy services." }, { status: 400 });
-      const servicePlatform = Array.isArray(service.platforms) ? service.platforms[0] : service.platforms;
-      const contract = getTargetContract(service.slug) ?? getTargetContractForService({
-        slug: service.slug,
+      const result = normalizeTargetForService({
         platformSlug: servicePlatform?.slug,
         targetType: service.target_type,
+        value: targetValue,
       });
-      const result = contract
-        ? normalizeTargetForService({
-            slug: service.slug,
-            platformSlug: servicePlatform?.slug,
-            targetType: service.target_type,
-            value: targetValue,
-          })
-        : { valid: true as const, target: targetValue.trim() };
       if (!result.valid) return NextResponse.json({ error: result.reason }, { status: 400 });
       if (!quantityInRange(quantity, quantityRange)) {
         return NextResponse.json({ error: `Quantity must be between ${quantityRange.min} and ${quantityRange.max}.` }, { status: 400 });

@@ -19,6 +19,9 @@ const order = {
   status: "PENDING_PAYMENT",
   payment_status: "UNPAID",
   user_id: "user-1",
+  target_type: "url",
+  target_value: "https://www.instagram.com/p/example/",
+  services: { target_type: "url", platforms: { slug: "instagram" } },
 };
 const validResponse = {
   status: true,
@@ -43,6 +46,7 @@ function loadSettlement({
 } = {}) {
   const queries = [];
   const rpcCalls = [];
+  const afterCallbacks = [];
   let verificationCalls = 0;
   const verifyPaystack = async () => {
     verificationCalls += 1;
@@ -81,6 +85,7 @@ function loadSettlement({
   const module = { exports: {} };
   const require = (specifier) => {
     if (specifier === "server-only") return {};
+    if (specifier === "next/server") return { after: (callback) => afterCallbacks.push(callback) };
     if (specifier === "../supabase/server") return { createSupabaseAdminClient: () => admin };
     if (specifier === "./paystack") {
       return {
@@ -100,6 +105,12 @@ function loadSettlement({
         },
       };
     }
+    if (specifier === "../posthog/server") {
+      return { captureServerEvent: async () => {} };
+    }
+    if (specifier === "../fulfillment/dispatch-paid-order") {
+      return { dispatchPaidOrder: async () => ({ outcome: "SUBMITTED" }) };
+    }
     throw new Error(`Unexpected import in settlement test: ${specifier}`);
   };
   vm.runInNewContext(compiled, { module, exports: module.exports, require });
@@ -110,6 +121,7 @@ function loadSettlement({
     verifyPaystack,
     queries,
     rpcCalls,
+    afterCallbacks,
     get verificationCalls() {
       return verificationCalls;
     },
@@ -141,8 +153,18 @@ function loadInitializationRoute(settlement) {
         },
       };
     }
+    if (specifier === "../../../../lib/payments/bundleup-gateway-attempt") {
+      return {
+        initializeBundleUpGatewayAttempt: async () => {
+          throw new Error("Unexpected BundleUp initialization in Paystack regression test.");
+        },
+      };
+    }
     if (specifier === "../../../../lib/payments/settle") {
       return { verifyAndSettlePaystack: settlement.verifyAndSettlePaystack };
+    }
+    if (specifier === "../../../../lib/targets/contracts") {
+      return { validateConfiguredOrderTarget: () => ({ valid: true }) };
     }
     if (specifier === "../../../../lib/pricing/customer-price") {
       return {
@@ -162,9 +184,23 @@ function loadInitializationRoute(settlement) {
         rulesFor: () => [],
       };
     }
+    if (specifier === "../../../../lib/posthog/server") {
+      return { captureServerEvent: async () => {} };
+    }
+    if (specifier === "../../../../lib/posthog/logs") {
+      return { flushPostHogLogs: async () => {}, logPostHogInfo: () => {} };
+    }
     throw new Error(`Unexpected import in initialization test: ${specifier}`);
   };
-  vm.runInNewContext(compiled, { module, exports: module.exports, require, process });
+  vm.runInNewContext(compiled, {
+    module,
+    exports: module.exports,
+    require,
+    process: { env: { VANTA_CHECKOUT_PAYMENT_PROVIDER: "paystack" } },
+    setTimeout,
+    clearTimeout,
+    console,
+  });
   return module.exports.POST;
 }
 
@@ -173,6 +209,7 @@ function loadInitializationRoute(settlement) {
   const verified = validResponse;
   const result = await test.verifyAndSettlePaystack(payment.reference, payment.user_id, verified);
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { found: true, paid: true });
+  assert.equal(test.afterCallbacks.length, 1, "confirmed payment schedules fulfillment after the response");
   assert.equal(test.verificationCalls, 0, "a supplied provider response is reused");
   assert.equal(test.rpcCalls.length, 1, "a valid response attempts settlement exactly once");
   assert.deepEqual(test.queries[0].filters, [["provider", "paystack"], ["reference", payment.reference]]);
@@ -230,6 +267,7 @@ for (const status of ["failed", "pending", "abandoned", "reversed", undefined]) 
   const result = await test.verifyAndSettlePaystack(payment.reference, payment.user_id, response);
   assert.equal(result.paid, false, `${String(status)} provider status is not settled`);
   assert.equal(test.rpcCalls.length, 0);
+  assert.equal(test.afterCallbacks.length, 0, "unsettled payment never schedules fulfillment");
 }
 
 {

@@ -19,16 +19,23 @@ export function assessProviderEligibility(input: { serviceSlug: string; targetCo
     ? provider.raw_metadata as Record<string, unknown>
     : null;
   if (
-    !metadata ||
-    String(metadata.service ?? "") !== provider.provider_service_id ||
-    metadata.name !== provider.name ||
-    typeof metadata.category !== "string" ||
-    !metadata.category.trim()
+    metadata &&
+    ((metadata.service != null && String(metadata.service) !== provider.provider_service_id) ||
+      (typeof metadata.name === "string" && metadata.name.trim() !== provider.name.trim()))
   ) {
-    return { status: "BLOCKED", reason: "Provider service ID, name, and operation category metadata must be complete and consistent." };
+    return { status: "BLOCKED", reason: "Provider service identity metadata conflicts with the catalog entry." };
   }
-  if (!input.expectedTargetType || !input.providerTargetType || input.providerTargetType !== input.expectedTargetType) {
-    return { status: "BLOCKED", reason: "Provider target type is missing or does not match the VANTA service." };
+  if (!input.expectedTargetType) {
+    return { status: "BLOCKED", reason: "VANTA service target type is missing." };
+  }
+  const providerTargetMetadataUnavailable = !input.providerTargetType;
+  const compatibleUrlTargetTypes = new Set([input.expectedTargetType, input.providerTargetType]);
+  if (
+    input.providerTargetType &&
+    input.providerTargetType !== input.expectedTargetType &&
+    !(compatibleUrlTargetTypes.size === 2 && compatibleUrlTargetTypes.has("url") && compatibleUrlTargetTypes.has("post_url"))
+  ) {
+    return { status: "BLOCKED", reason: `Provider target type '${input.providerTargetType}' is incompatible with VANTA target type '${input.expectedTargetType}'.` };
   }
   if (provider.provider !== "reliablesmm" || provider.provider_status !== "ACTIVE") return { status: "BLOCKED", reason: "Provider mapping is not active and supported." };
   if (
@@ -43,7 +50,15 @@ export function assessProviderEligibility(input: { serviceSlug: string; targetCo
   const bounds = effectiveQuantityBounds(input.vantaMin, input.vantaMax, provider.min_quantity, provider.max_quantity);
   if (bounds.min > bounds.max) return { status: "BLOCKED", reason: "VANTA and provider quantity ranges do not overlap." };
   if (input.operationCompatibilityVerified) {
-    return { status: "ELIGIBLE", reason: "Provider service identity and operation passed the reviewed VANTA/provider compatibility gates.", effectiveMin: bounds.min, effectiveMax: bounds.max };
+    return {
+      status: "ELIGIBLE",
+      reason: providerTargetMetadataUnavailable
+        ? "Provider target metadata is unavailable; the selected VANTA target mapping and provider operation were explicitly reviewed."
+        : "Provider service identity and operation passed the reviewed VANTA/provider compatibility gates.",
+      effectiveMin: bounds.min,
+      effectiveMax: bounds.max,
+    };
   }
+  if (providerTargetMetadataUnavailable) return { status: "MANUAL_REVIEW", reason: "Provider target metadata is unavailable; confirm the target field before mapping.", effectiveMin: bounds.min, effectiveMax: bounds.max };
   return { status: "MANUAL_REVIEW", reason: "This exact provider service ID is not approved for this VANTA operation and requires manual review.", effectiveMin: bounds.min, effectiveMax: bounds.max };
 }

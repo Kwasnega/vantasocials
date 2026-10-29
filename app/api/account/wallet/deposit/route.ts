@@ -22,8 +22,16 @@ export async function POST(request: Request) {
     const admin = createSupabaseAdminClient();
     const idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || crypto.randomUUID();
     if (!/^[A-Za-z0-9._:-]{8,200}$/.test(idempotencyKey)) return NextResponse.json({ error: "Invalid idempotency key." }, { status: 400 });
-    const { data: wallet, error: walletError } = await admin.from("wallets").select("id").eq("user_id", user.id).maybeSingle();
+    const [walletResult, existingDepositResult] = await Promise.all([
+      admin.from("wallets").select("id").eq("user_id", user.id).maybeSingle(),
+      admin.from("wallet_deposit_payments").select("id,reference,amount_minor,status,provider_response").eq("user_id", user.id).eq("idempotency_key", idempotencyKey).maybeSingle(),
+    ]);
+
+    const { data: wallet, error: walletError } = walletResult;
     if (walletError) throw walletError;
+    const { data: existingDeposit, error: existingDepositError } = existingDepositResult;
+    if (existingDepositError) throw existingDepositError;
+
     let walletId = wallet?.id;
     if (!walletId) {
       const { data: createdWallet, error } = await admin.from("wallets").insert({ user_id: user.id, currency: "GHS" }).select("id").single();
@@ -31,7 +39,6 @@ export async function POST(request: Request) {
       walletId = createdWallet?.id;
       if (!walletId) { const retry = await admin.from("wallets").select("id").eq("user_id", user.id).single(); if (retry.error) throw retry.error; walletId = retry.data.id; }
     }
-    const { data: existingDeposit } = await admin.from("wallet_deposit_payments").select("id,reference,amount_minor,status,provider_response").eq("user_id", user.id).eq("idempotency_key", idempotencyKey).maybeSingle();
     if (existingDeposit) {
       if (BigInt(existingDeposit.amount_minor) !== amountMinor) return NextResponse.json({ error: "Idempotency key was used for a different amount." }, { status: 409 });
       const response = existingDeposit.provider_response as { authorization_url?: unknown; access_code?: unknown } | null;

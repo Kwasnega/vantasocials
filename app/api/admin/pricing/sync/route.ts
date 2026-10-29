@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { ReliableSMMReadOnlyClient } from "../../../../../lib/fulfillment/reliablesmm/client";
@@ -32,5 +33,6 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: "Unable to persist provider economics." }, { status: 500 });
   const audit = await db.from("pricing_audit_log").insert({ service_id: service.id, field: "provider_rate", old_value: service.provider_rate, new_value: rate, changed_by: user.id });
   if (audit.error) return NextResponse.json({ error: "Provider economics saved, but audit logging failed." }, { status: 500 });
+  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
   return NextResponse.json({ service_id: service.id, provider: normalizedProvider.provider, provider_service_id: normalizedProvider.providerServiceId, provider_rate: rate, provider_rate_unit: providerRateUnit, provider_currency: normalizedProvider.currency });
 }

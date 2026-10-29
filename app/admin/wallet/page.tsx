@@ -11,9 +11,9 @@ export default async function AdminWalletPage() {
     { data: deposits, count: depositCount, error: depositsError },
     { data: transactions, count: transactionCount, error: transactionsError },
   ] = await Promise.all([
-    db.from("wallets").select("id,user_id,balance_minor,currency,created_at,profiles(email)", { count: "exact" }).order("created_at", { ascending: false }).limit(100),
-    db.from("wallet_deposit_payments").select("user_id,amount_minor,status,reference,created_at,paid_at", { count: "exact" }).order("created_at", { ascending: false }).limit(100),
-    db.from("wallet_transactions").select("wallet_id,type,direction,status,amount_minor,reference,order_id,created_at", { count: "exact" }).order("created_at", { ascending: false }).limit(100),
+    db.from("wallets").select("id,user_id,balance_minor,currency,created_at,profiles(email)", { count: "planned" }).order("created_at", { ascending: false }).limit(100),
+    db.from("wallet_deposit_payments").select("user_id,amount_minor,status,reference,created_at,paid_at", { count: "planned" }).order("created_at", { ascending: false }).limit(100),
+    db.from("wallet_transactions").select("wallet_id,type,direction,status,amount_minor,reference,order_id,created_at", { count: "planned" }).order("created_at", { ascending: false }).limit(100),
   ]);
   const sampledBalances = (wallets ?? []).reduce<Record<string, number>>((totals, wallet) => {
     const currency = String(wallet.currency ?? "UNKNOWN");

@@ -4,8 +4,9 @@ import { resolveTransform } from "../inputs/transforms";
 import { validateProviderInputMapping, validateServiceInputField } from "../inputs/validation";
 import { getTargetContractForService } from "../targets/contracts";
 import { assessProviderEligibility } from "../targets/eligibility";
-import { assertAllowedProviderParameterKey } from "../fulfillment/reliablesmm/reserved-keys";
+import { assertAllowedProviderParameterKey, isReservedProviderTransportKey } from "../fulfillment/reliablesmm/reserved-keys";
 import { matchesApprovedProviderOperation, resolveProviderCompatibility, resolveProviderPlatformCompatibility } from "./provider-compatibility";
+import { providerCatalogMatches } from "./provider-category";
 
 export type NormalizedFieldDraft = ReturnType<typeof validateServiceInputField>;
 
@@ -23,14 +24,13 @@ function normalizeText(value: unknown, fieldName: string, maxLength = 200) {
 
 export function extractApprovedProviderParameters(rawMetadata: unknown): string[] {
   const metadata = isPlainObject(rawMetadata) ? rawMetadata : null;
-  if (!metadata) return [];
   const candidates: unknown[] = [];
-  if (Array.isArray(metadata.parameters)) candidates.push(...metadata.parameters);
-  if (Array.isArray(metadata.parameter_options)) candidates.push(...metadata.parameter_options);
-  if (Array.isArray(metadata.parameterKeys)) candidates.push(...metadata.parameterKeys);
-  if (Array.isArray(metadata.parameter_schema)) candidates.push(...metadata.parameter_schema);
-  if (Array.isArray(metadata.fields)) candidates.push(...metadata.fields);
-  if (metadata.parameter_map && typeof metadata.parameter_map === "object") {
+  if (metadata && Array.isArray(metadata.parameters)) candidates.push(...metadata.parameters);
+  if (metadata && Array.isArray(metadata.parameter_options)) candidates.push(...metadata.parameter_options);
+  if (metadata && Array.isArray(metadata.parameterKeys)) candidates.push(...metadata.parameterKeys);
+  if (metadata && Array.isArray(metadata.parameter_schema)) candidates.push(...metadata.parameter_schema);
+  if (metadata && Array.isArray(metadata.fields)) candidates.push(...metadata.fields);
+  if (metadata?.parameter_map && typeof metadata.parameter_map === "object") {
     for (const [key, value] of Object.entries(metadata.parameter_map as Record<string, unknown>)) {
       candidates.push({ key, label: typeof value === "string" ? value : key });
     }
@@ -40,7 +40,7 @@ export function extractApprovedProviderParameters(rawMetadata: unknown): string[
   for (const candidate of candidates) {
     if (typeof candidate === "string") {
       const key = candidate.trim();
-      if (key && !seen.has(key)) {
+      if (key && (!isReservedProviderTransportKey(key) || key === "link") && !seen.has(key)) {
         seen.add(key);
         parsed.push(key);
       }
@@ -48,12 +48,13 @@ export function extractApprovedProviderParameters(rawMetadata: unknown): string[
     }
     if (isPlainObject(candidate)) {
       const key = (typeof candidate.key === "string" ? candidate.key.trim() : typeof candidate.parameterKey === "string" ? candidate.parameterKey.trim() : typeof candidate.name === "string" ? candidate.name.trim() : "");
-      if (key && !seen.has(key)) {
+      if (key && (!isReservedProviderTransportKey(key) || key === "link") && !seen.has(key)) {
         seen.add(key);
         parsed.push(key);
       }
     }
   }
+  if (!seen.has("link")) parsed.push("link");
   return parsed;
 }
 
@@ -92,14 +93,13 @@ export function normalizeFieldDraft(raw: unknown) {
   return validateServiceInputField(field);
 }
 
-export function normalizeMappingDraft(raw: unknown, field: ServiceInputField) {
+export function normalizeMappingDraft(raw: unknown, field: ServiceInputField | (Record<string, unknown> & { key: string }), expectedTargetType?: string | null) {
   if (!raw || typeof raw !== "object") throw new Error("Provider mapping configuration is required.");
   const body = raw as Record<string, unknown>;
   const serviceId = normalizeText(body.serviceId ?? body.service_id, "Service ID", 64);
   const provider = normalizeText(body.provider, "Provider", 80);
   const providerServiceId = normalizeText(body.providerServiceId ?? body.provider_service_id, "Provider service ID", 128);
   const providerParameterKey = normalizeText(body.providerParameterKey ?? body.provider_parameter_key, "Provider parameter key", 128);
-  assertAllowedProviderParameterKey(providerParameterKey);
   const transformId = normalizeText(body.transformId ?? body.transform_id, "Transform ID", 80);
   const transformVersion = Number(body.transformVersion ?? body.transform_version ?? 1);
   if (!Number.isSafeInteger(transformVersion) || transformVersion < 1) throw new Error("Transform version must be a positive integer.");
@@ -110,6 +110,38 @@ export function normalizeMappingDraft(raw: unknown, field: ServiceInputField) {
   const active = body.active === undefined ? true : Boolean(body.active);
   const transform = resolveTransform(transformId, transformVersion);
   if (!transform) throw new Error("Unknown or unsupported transform.");
+  const dbField = field as ServiceInputField & {
+    input_type?: string;
+    validation_config?: ValidationConfig;
+    schema_version?: number;
+    display_order?: number;
+  };
+  const inputType = dbField.inputType ?? dbField.input_type;
+  const definition = inputType ? getInputTypeDefinition(inputType) : null;
+  if (!definition) throw new Error("VANTA input type is missing or unsupported.");
+  if (providerParameterKey === "link") {
+    const urlTargetCompatible =
+      inputType === expectedTargetType ||
+      ((inputType === "url" || inputType === "post_url") && (expectedTargetType === "url" || expectedTargetType === "post_url"));
+    if (!urlTargetCompatible || transform.id !== "normalize_url") {
+      throw new Error("ReliableSMM 'link' requires a URL field compatible with the VANTA service target and the normalize_url transform.");
+    }
+  } else {
+    assertAllowedProviderParameterKey(providerParameterKey);
+  }
+  const normalizedField: ServiceInputField = {
+    key: dbField.key,
+    label: typeof dbField.label === "string" ? dbField.label : dbField.key,
+    inputType: inputType as ServiceInputField["inputType"],
+    required: typeof dbField.required === "boolean" ? dbField.required : true,
+    displayOrder: Number(dbField.displayOrder ?? dbField.display_order ?? 0),
+    validation: {
+      rule: definition.validationRule,
+      config: dbField.validation?.config ?? (isPlainObject(dbField.validation_config) ? dbField.validation_config as ValidationConfig : {}),
+    },
+    schemaVersion: Number(dbField.schemaVersion ?? dbField.schema_version ?? 1),
+    active: typeof dbField.active === "boolean" ? dbField.active : true,
+  };
   const mapping = {
     serviceId,
     vantaInputFieldKey: field.key,
@@ -122,10 +154,10 @@ export function normalizeMappingDraft(raw: unknown, field: ServiceInputField) {
     mappingSchemaVersion: schemaVersion,
     active,
   };
-  return validateProviderInputMapping(mapping, field);
+  return validateProviderInputMapping(mapping, normalizedField);
 }
 
-export function ensureProviderMappingEligibility(service: { slug: string; target_type?: string | null; min_quantity?: number | null; max_quantity?: number | null; platforms?: { slug?: string | null; name?: string | null } | null }, catalogRow: { provider?: string | null; provider_service_id?: string | number | null; name?: string | null; provider_status?: string | null; provider_rate?: number | string | null; provider_currency?: string | null; rate_unit?: string | null; min_quantity?: number | null; max_quantity?: number | null; raw_metadata?: unknown }) {
+export function ensureProviderMappingEligibility(service: { slug: string; target_type?: string | null; min_quantity?: number | null; max_quantity?: number | null; platforms?: { slug?: string | null; name?: string | null } | null }, catalogRow: { provider?: string | null; provider_service_id?: string | number | null; name?: string | null; provider_status?: string | null; provider_rate?: number | string | null; provider_currency?: string | null; rate_unit?: string | null; min_quantity?: number | null; max_quantity?: number | null; raw_metadata?: unknown }, allowExplicitAdminReview = false, targetFieldValidated = false) {
   const targetContract = getTargetContractForService({
     slug: service.slug,
     targetType: service.target_type ?? null,
@@ -165,6 +197,23 @@ export function ensureProviderMappingEligibility(service: { slug: string; target
       raw_metadata: catalogRow.raw_metadata,
     },
   });
+  if (eligibility.status === "MANUAL_REVIEW" && allowExplicitAdminReview) {
+    const category = isPlainObject(catalogRow.raw_metadata) && typeof catalogRow.raw_metadata.category === "string"
+      ? catalogRow.raw_metadata.category
+      : "";
+    if (
+      providerCatalogMatches(service.slug, String(catalogRow.name ?? ""), category) &&
+      (Boolean(compatibility.compatibility?.targetType) || targetFieldValidated)
+    ) {
+      return {
+        ...eligibility,
+        status: "ELIGIBLE" as const,
+        reason: compatibility.compatibility?.targetType
+          ? "Administrator explicitly selected a service whose catalog name and category match this VANTA operation."
+          : "Provider target metadata is unavailable; the URL target field and matching provider operation were explicitly reviewed.",
+      };
+    }
+  }
   if (eligibility.status !== "ELIGIBLE") { throw new Error(eligibility.status === "MANUAL_REVIEW" ? "This provider service requires manual review before mapping." : eligibility.reason); }
   return eligibility;
 }

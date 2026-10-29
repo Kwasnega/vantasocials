@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireAdmin } from "../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/server";
 import { calculatePricing, type RateUnit } from "../../../../lib/pricing/engine";
@@ -159,6 +160,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `VANTA price was saved, but pricing audit failed: ${audit.error.message}` }, { status: 500 });
   }
 
+  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
   return NextResponse.json({
     saved: true,
     mapping: mapped.data,

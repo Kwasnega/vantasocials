@@ -1,4 +1,5 @@
 import "server-only";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../lib/supabase/server";
@@ -49,7 +50,7 @@ export default async function AdminPricingPage() {
       </header>
       <p className="pricing-contract-note">
         Customer prices are displayed in GHS per 1,000 units. This page is for reviewing prices;
-        make changes from <a href="/admin/services">Admin Services</a>. Provider cost estimates
+        make changes from <Link href="/admin/services">Admin Services</Link>. Provider cost estimates
         are internal and do not change customer prices.
       </p>
       {settingError && <AdminQueryError message="Exchange-rate settings could not be loaded. Provider cost estimates are unavailable." />}

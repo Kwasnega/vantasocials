@@ -3,6 +3,10 @@ import { requireAdmin } from "../../../../../../lib/admin/auth";
 import { ensureProviderMappingEligibility, extractApprovedProviderParameters, getServiceMappingInsertPayload, normalizeMappingDraft } from "../../../../../../lib/admin/service-input-config";
 import { isReservedProviderTransportKey } from "../../../../../../lib/fulfillment/reliablesmm/reserved-keys";
 import { createSupabaseAdminClient } from "../../../../../../lib/supabase/server";
+import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../../lib/security/rate-limit";
+
+const SERVICE_INPUT_MAPPING_SELECT_COLUMNS = "id,service_id,service_input_field_id,provider,provider_service_id,provider_parameter_key,transform_id,transform_version,provider_required,omit_when_blank,schema_version,active,created_at,updated_at";
+const SERVICE_INPUT_FIELD_MAPPING_COLUMNS = "id,service_id,key,label,input_type,required,display_order,placeholder,help_text,validation_config,schema_version,active,created_at,updated_at";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ serviceId: string }> }) {
   const { user, admin } = await requireAdmin();
@@ -15,8 +19,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ser
     { data: catalog, error: catalogError },
     { data: fields, error: fieldsError },
   ] = await Promise.all([
-    db.from("service_provider_input_mappings").select("*").eq("service_id", serviceId).order("created_at", { ascending: false }),
-    db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,raw_metadata").eq("provider", "reliablesmm").eq("provider_status", "ACTIVE").order("provider_service_id"),
+    db.from("service_provider_input_mappings").select(SERVICE_INPUT_MAPPING_SELECT_COLUMNS).eq("service_id", serviceId).order("created_at", { ascending: false }),
+    db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_status", "ACTIVE").order("provider_service_id"),
     db.from("service_input_fields").select("id,key,label,input_type").eq("service_id", serviceId).order("display_order", { ascending: true }),
   ]);
   if (mappingsError || catalogError || fieldsError) {
@@ -36,6 +40,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
   const { user, admin } = await requireAdmin();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+
+  try {
+    const rejected = await enforceAdminRateLimit(request, user.id, "service-mapping-mutation", [30, 30]);
+    if (rejected) return rejected;
+  } catch {
+    return limiterUnavailable();
+  }
   const { serviceId } = await params;
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
@@ -49,7 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
   };
   const fieldId = typeof body.serviceInputFieldId === "string" ? body.serviceInputFieldId : typeof body.service_input_field_id === "string" ? body.service_input_field_id : "";
   if (!fieldId) return NextResponse.json({ error: "A VANTA input field is required." }, { status: 400 });
-  const { data: field, error: fieldError } = await db.from("service_input_fields").select("*").eq("service_id", serviceId).eq("id", fieldId).maybeSingle();
+  const { data: field, error: fieldError } = await db.from("service_input_fields").select(SERVICE_INPUT_FIELD_MAPPING_COLUMNS).eq("service_id", serviceId).eq("id", fieldId).maybeSingle();
   if (fieldError) return NextResponse.json({ error: "Input field lookup failed." }, { status: 500 });
   if (!field) return NextResponse.json({ error: "This VANTA field does not belong to the selected service." }, { status: 409 });
   const catalogServiceId = typeof body.providerServiceId === "string" ? body.providerServiceId : typeof body.provider_service_id === "string" ? body.provider_service_id : "";
@@ -57,17 +68,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
   const { data: catalogRow, error: catalogError } = await db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_service_id", catalogServiceId).eq("provider_status", "ACTIVE").maybeSingle();
   if (catalogError) return NextResponse.json({ error: "Provider catalog lookup failed." }, { status: 500 });
   if (!catalogRow) return NextResponse.json({ error: "The selected ReliableSMM service is unavailable or inactive." }, { status: 409 });
-  try {
-    ensureProviderMappingEligibility(normalizedService, catalogRow);
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "This provider service is not eligible for the selected VANTA service." }, { status: 409 });
-  }
   const allowedParameters = extractApprovedProviderParameters(catalogRow.raw_metadata);
   const providerParameterKey = typeof body.providerParameterKey === "string" ? body.providerParameterKey : typeof body.provider_parameter_key === "string" ? body.provider_parameter_key : "";
-  if (isReservedProviderTransportKey(providerParameterKey)) {
+  if (isReservedProviderTransportKey(providerParameterKey) && providerParameterKey !== "link") {
     return NextResponse.json({ error: `Provider parameter key '${providerParameterKey}' is reserved for system-controlled transport fields.` }, { status: 400 });
   }
-  if (!allowedParameters.length || !allowedParameters.includes(providerParameterKey)) return NextResponse.json({ error: "Provider parameter metadata is unavailable or the selected parameter is not approved for this catalog entry." }, { status: 409 });
+  if (!allowedParameters.includes(providerParameterKey)) return NextResponse.json({ error: "Provider parameter metadata is unavailable or the selected parameter is not approved for this catalog entry." }, { status: 409 });
 
   try {
     const mapping = normalizeMappingDraft(
@@ -80,6 +86,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
         providerParameterKey,
       },
       field,
+      normalizedService.target_type,
+    );
+    const eligibility = ensureProviderMappingEligibility(
+      normalizedService,
+      catalogRow,
+      true,
+      mapping.providerParameterKey === "link" && mapping.transform.id === "normalize_url",
     );
 
     const { data: existingActive, error: existingError } = await db.from("service_provider_input_mappings").select("id").eq("service_id", serviceId).eq("service_input_field_id", fieldId).eq("provider", "reliablesmm").eq("provider_service_id", catalogServiceId).eq("schema_version", mapping.mappingSchemaVersion).eq("active", true).maybeSingle();
@@ -87,12 +100,45 @@ export async function POST(request: Request, { params }: { params: Promise<{ ser
     if (existingActive) return NextResponse.json({ error: "An active mapping already exists for this VANTA field and provider service." }, { status: 409 });
 
     const payload = getServiceMappingInsertPayload(mapping, serviceId, fieldId);
-    const { data, error } = await db.from("service_provider_input_mappings").insert(payload).select("*").single();
+    const { data, error } = await db.from("service_provider_input_mappings").insert(payload).select(SERVICE_INPUT_MAPPING_SELECT_COLUMNS).single();
     if (error) {
       if (error.code === "23505") return NextResponse.json({ error: "An active mapping already exists for this VANTA field and provider service." }, { status: 409 });
       throw error;
     }
-    return NextResponse.json({ mapping: data }, { status: 201 });
+    const { data: applied, error: applyError } = await db.rpc("apply_provider_mapping", {
+      p_service_id: serviceId,
+      p_provider: "reliablesmm",
+      p_provider_service_id: catalogServiceId,
+      p_changed_by: user.id,
+    });
+    const appliedMapping = Array.isArray(applied) ? applied[0] : applied;
+    if (
+      applyError ||
+      appliedMapping?.service_id !== serviceId ||
+      appliedMapping?.provider !== "reliablesmm" ||
+      String(appliedMapping?.provider_service_id ?? "") !== catalogServiceId
+    ) {
+      const { error: cleanupError } = await db.from("service_provider_input_mappings").update({ active: false }).eq("id", data.id);
+      if (cleanupError) {
+        return NextResponse.json({ error: "Provider mapping could not be applied, and the newly created input mapping could not be deactivated. Verify service mapping state before retrying." }, { status: 500 });
+      }
+      return NextResponse.json({ error: applyError?.message || "Provider service mapping did not confirm the selected ReliableSMM service." }, { status: 409 });
+    }
+
+    const { error: staleMappingsError } = await db
+      .from("service_provider_input_mappings")
+      .update({ active: false })
+      .eq("service_id", serviceId)
+      .eq("provider", "reliablesmm")
+      .neq("provider_service_id", catalogServiceId)
+      .eq("active", true);
+    if (staleMappingsError) {
+      return NextResponse.json({ error: "The service now targets the selected provider service, but older input mappings could not be deactivated. Fulfillment will remain blocked until they are reviewed." }, { status: 500 });
+    }
+    return NextResponse.json({
+      mapping: data,
+      eligibility,
+    }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to create provider mapping." }, { status: 400 });
   }

@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const db = createSupabaseAdminClient();
   const [{ data: orderStatuses, count: providerOrders }, { data: locks }, { data: activeAttempts }, { data: mapping }, { data: catalog }, { data: followersOrder }] = await Promise.all([
+    // Status breakdown requires exact count across the result set to display accurately
     db.from("provider_orders").select("status,attempt_status", { count: "exact" }),
     db.from("provider_operation_locks").select("operation_key,acquired_at,expires_at"),
     db.from("provider_orders").select("id,attempt_status,submission_lease_expires_at,reconciliation_lease_expires_at").or("submission_lease_expires_at.not.is.null,reconciliation_lease_expires_at.not.is.null"),

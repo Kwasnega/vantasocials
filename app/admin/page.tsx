@@ -2,40 +2,156 @@ import Link from "next/link";
 import { requireAdmin } from "../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../lib/supabase/server";
 import { AdminQueryError } from "./AdminDataState";
+import BalanceRefresh from "./providers/BalanceRefresh";
+
+type DashboardMetricsResult = {
+  customer_count?: number;
+  order_count?: number;
+  wallet_count?: number;
+  ghs_balance_minor?: number;
+  catalog_service_count?: number;
+  customers_count?: number;
+  orders_count?: number;
+  paid_orders_count?: number;
+  active_orders_count?: number;
+};
+
+type RecentOrderItem = {
+  public_order_id: string;
+  total: number | string;
+  currency: string;
+  payment_status: string;
+  fulfillment_status: string;
+  created_at: string;
+  profiles: { email?: string } | null;
+  services: { name?: string } | null;
+};
 
 export default async function AdminPage() {
   const { admin } = await requireAdmin();
   if (!admin) return null;
   const db = createSupabaseAdminClient();
-  const [
-    { count: customers, error: customersError },
-    { count: orders, error: ordersError },
-    { data: wallets, count: walletCount, error: walletsError },
-    { data: recent, error: recentError },
-    { data: providerHealth, error: providerHealthError },
-    { count: catalogCount, error: catalogError }
-  ] = await Promise.all([
-    db.from("profiles").select("id", { count: "exact", head: true }),
-    db.from("orders").select("id", { count: "exact", head: true }),
-    db.from("wallets").select("balance_minor,currency", { count: "exact" }).order("created_at", { ascending: true }).limit(1000),
-    db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status,created_at,profiles(email),services(name)").order("created_at", { ascending: false }).limit(10),
-    db.from("provider_health").select("configured,balance,balance_currency,last_balance_check,balance_status").eq("provider", "reliablesmm").maybeSingle(),
-    db.from("provider_catalog_services").select("id", { count: "exact", head: true }).eq("provider", "reliablesmm")
-  ]);
-  const ghsBalanceSample = (wallets ?? []).filter((wallet) => wallet.currency === "GHS").reduce((sum, wallet) => sum + Number(wallet.balance_minor ?? 0), 0);
-  const walletSampleComplete = walletCount !== null && walletCount <= (wallets?.length ?? 0);
+
+  // 1. Attempt server-side aggregated metrics RPC first
+  let rpcMetrics: DashboardMetricsResult | null = null;
+  let rpcError: unknown = null;
+
+  try {
+    const { data, error } = await db.rpc("get_admin_dashboard_metrics");
+    if (!error && data) {
+      rpcMetrics = Array.isArray(data) ? (data[0] as DashboardMetricsResult) : (data as DashboardMetricsResult);
+    } else {
+      rpcError = error;
+      if (error) {
+        console.error("Admin dashboard RPC get_admin_dashboard_metrics() failed, falling back to individual queries:", error);
+      }
+    }
+  } catch (err) {
+    rpcError = err;
+    console.error("Admin dashboard RPC get_admin_dashboard_metrics() threw an exception, falling back to individual queries:", err);
+  }
+
+  let customers: number | null = null;
+  let orders: number | null = null;
+  let walletCount: number | null = null;
+  let ghsBalanceSample = 0;
+  let catalogCount: number | null = null;
+
+  let customersError: unknown = null;
+  let ordersError: unknown = null;
+  let walletsError: unknown = null;
+  let catalogError: unknown = null;
+
+  let recent: RecentOrderItem[] = [];
+  let recentError: unknown = null;
+
+  let providerHealth: {
+    configured: boolean;
+    balance: number | string | null;
+    balance_currency: string | null;
+    last_balance_check: string | null;
+    balance_status: string | null;
+  } | null = null;
+  let providerHealthError: unknown = null;
+
+  if (rpcMetrics) {
+    customers = rpcMetrics.customers_count ?? rpcMetrics.customer_count ?? null;
+    orders = rpcMetrics.orders_count ?? rpcMetrics.order_count ?? null;
+    walletCount = rpcMetrics.wallet_count ?? null;
+    ghsBalanceSample = Number(rpcMetrics.ghs_balance_minor ?? 0);
+    catalogCount = rpcMetrics.catalog_service_count ?? null;
+
+    const [
+      { data: recentOrders, error: rErr },
+      { data: health, error: hErr }
+    ] = await Promise.all([
+      db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status,created_at,profiles(email),services(name)").order("created_at", { ascending: false }).limit(10),
+      db.from("provider_health").select("configured,balance,balance_currency,last_balance_check,balance_status").eq("provider", "reliablesmm").maybeSingle(),
+    ]);
+    recent = (recentOrders ?? []) as unknown as RecentOrderItem[];
+    recentError = rErr;
+    providerHealth = health;
+    providerHealthError = hErr;
+  } else {
+    // Fallback: bounded queries without pulling 1,000 raw wallets into memory
+    const [
+      { count: custCount, error: cErr },
+      { count: ordCount, error: oErr },
+      { data: wallets, count: wCount, error: wErr },
+      { data: recentOrders, error: rErr },
+      { data: health, error: hErr },
+      { count: catCount, error: catErr }
+    ] = await Promise.all([
+      db.from("profiles").select("id", { count: "planned", head: true }),
+      db.from("orders").select("id", { count: "planned", head: true }),
+      db.from("wallets").select("balance_minor,currency", { count: "planned" }).eq("currency", "GHS").limit(100),
+      db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status,created_at,profiles(email),services(name)").order("created_at", { ascending: false }).limit(10),
+      db.from("provider_health").select("configured,balance,balance_currency,last_balance_check,balance_status").eq("provider", "reliablesmm").maybeSingle(),
+      db.from("provider_catalog_services").select("id", { count: "planned", head: true }).eq("provider", "reliablesmm")
+    ]);
+    customers = custCount;
+    orders = ordCount;
+    walletCount = wCount;
+    ghsBalanceSample = (wallets ?? []).reduce((sum, w) => sum + Number(w.balance_minor ?? 0), 0);
+    catalogCount = catCount;
+    recent = (recentOrders ?? []) as unknown as RecentOrderItem[];
+    providerHealth = health;
+
+    customersError = cErr;
+    ordersError = oErr;
+    walletsError = wErr;
+    recentError = rErr;
+    providerHealthError = hErr;
+    catalogError = catErr;
+  }
+
+  const computedAt = new Date().toUTCString();
+  const walletSampleComplete = walletCount !== null && (rpcMetrics ? true : walletCount <= 100);
+
+  // Format provider balance nicely (e.g. 0.00 USD if near zero)
+  const formatProviderBalance = (val: number | string | null | undefined, currency: string | null) => {
+    if (val === null || val === undefined) return "—";
+    const num = Number(val);
+    if (!Number.isNaN(num)) {
+      return `${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${currency ?? "USD"}`;
+    }
+    return `${val} ${currency ?? "USD"}`;
+  };
 
   return (
     <div className="admin-overview">
       <header className="admin-overview-header">
         <div>
-          <p className="dashboard-kicker">OPERATIONS</p>
+          <p className="dashboard-kicker">
+            OPERATIONS · Metrics computed at {computedAt} ({rpcMetrics ? "aggregated RPC" : "direct fallback queries"})
+          </p>
           <h1>WELCOME BACK PLAY.ATO</h1>
           <p>Monitor VANTA operations and manage activity in real time.</p>
         </div>
-        <span className="admin-live-badge">{[customersError, ordersError, walletsError, recentError, providerHealthError, catalogError].some(Boolean) ? "● Some data unavailable" : "● Live data"}</span>
+        <span className="admin-live-badge">{[customersError, ordersError, walletsError, recentError, providerHealthError, catalogError, rpcError].some(Boolean) && !rpcMetrics ? "● Some data unavailable" : "● Live data"}</span>
         <div className="admin-overview-mark" aria-hidden="true">V</div>
       </header>
+
       <div className="admin-summary-layout">
         <div className="admin-side-stats">
           <article className="admin-kpi-card">
@@ -50,16 +166,17 @@ export default async function AdminPage() {
           </article>
         </div>
         <article className="admin-wallet-focus">
-          <span>GHS wallet balance sample</span>
-          {walletsError ? <AdminQueryError message="Wallet balance sample unavailable." /> : (
+          <span>{rpcMetrics ? "Total GHS wallet liability" : "GHS wallet balance sample"}</span>
+          {walletsError ? <AdminQueryError message="Wallet balance unavailable." /> : (
             <>
               <strong>{(ghsBalanceSample / 100).toFixed(2)} <em>GHS</em></strong>
-              <small>{walletSampleComplete ? `GHS balances among all ${walletCount ?? 0} wallets` : `GHS balances among up to 1,000 of ${walletCount ?? "unknown"} wallets; not total liability`}</small>
+              <small>{rpcMetrics ? `Aggregated across all ${walletCount ?? 0} wallets` : (walletSampleComplete ? `GHS balances among all ${walletCount ?? 0} wallets` : `Sample across recent wallets; not total liability`)}</small>
             </>
           )}
           <div className="admin-wallet-orbit" aria-hidden="true" />
         </article>
       </div>
+
       <div className="admin-overview-columns">
         <section className="admin-recent-panel">
           <div className="admin-panel-heading">
@@ -67,9 +184,9 @@ export default async function AdminPage() {
               <h2>Recent orders</h2>
               <p>Latest customer activity across VANTA.</p>
             </div>
-            <Link href="/admin/orders">View all →</Link>
+            <Link prefetch={false} href="/admin/orders">View all →</Link>
           </div>
-          {recentError ? <AdminQueryError message="Recent orders could not be loaded." /> : (recent ?? []).length === 0 ? (
+          {recentError ? <AdminQueryError message="Recent orders could not be loaded." /> : recent.length === 0 ? (
             <div className="admin-empty">
               <div className="empty-icon">V</div>
               <h3>No orders yet</h3>
@@ -87,10 +204,10 @@ export default async function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(recent ?? []).map((order) => (
+                  {recent.map((order) => (
                     <tr key={order.public_order_id}>
                       <td>
-                        <Link href={`/admin/orders/${order.public_order_id}`}>{order.public_order_id}</Link>
+                        <Link prefetch={false} href={`/admin/orders/${order.public_order_id}`}>{order.public_order_id}</Link>
                       </td>
                       <td>{(order.profiles as { email?: string } | null)?.email ?? "—"}</td>
                       <td>{order.total} {order.currency}</td>
@@ -106,18 +223,22 @@ export default async function AdminPage() {
             </div>
           )}
         </section>
+
         <section className="admin-provider-panel">
           <div className="admin-panel-heading">
             <div>
               <h2>Provider health</h2>
               <p>ReliableSMM account status.</p>
             </div>
-            {providerHealthError ? <AdminQueryError message="Provider health is unavailable." /> : (
+            {providerHealthError ? (
+              <AdminQueryError message="Provider health is unavailable." />
+            ) : (
               <span className={`provider-health-status ${providerHealth?.balance_status === "SUCCEEDED" ? "is-good" : ""}`}>
-                {providerHealth ? providerHealth.configured ? "Configured" : "Not configured" : "No health record"}
+                {providerHealth ? (providerHealth.configured ? "Configured" : "Not configured") : "No health record"}
               </span>
             )}
           </div>
+
           {providerHealthError ? null : (
             <>
               <div className="provider-health-grid">
@@ -127,7 +248,7 @@ export default async function AdminPage() {
                 </div>
                 <div>
                   <span>Balance</span>
-                  <strong>{providerHealth?.balance ?? "—"} {providerHealth?.balance_currency ?? ""}</strong>
+                  <strong>{formatProviderBalance(providerHealth?.balance, providerHealth?.balance_currency ?? "USD")}</strong>
                 </div>
                 <div>
                   <span>Status</span>
@@ -138,7 +259,12 @@ export default async function AdminPage() {
                   <strong>{providerHealth?.last_balance_check ? new Date(providerHealth.last_balance_check).toLocaleDateString() : "—"}</strong>
                 </div>
               </div>
-              <small>Read-only provider monitoring. Write operations remain disabled.</small>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <BalanceRefresh label="Reload balance" />
+                <Link prefetch={false} href="/admin/provider-catalog" style={{ color: "#c18aff", fontSize: 13, fontWeight: 700 }}>
+                  Catalog ({catalogCount ?? 0}) →
+                </Link>
+              </div>
             </>
           )}
         </section>

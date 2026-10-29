@@ -8,25 +8,15 @@ import { resolveProviderForService } from "./resolver";
 import { fulfillReliableSMMDynamicOrder, fulfillReliableSMMOrder } from "./reliablesmm/attempt";
 import { assertProviderMappingConsistency } from "./provider-mapping-consistency";
 import { assertPayableOrderTotal } from "../pricing/customer-price";
+import { normalizePersistedProviderInputMappings, type ProviderInputMapping } from "./service-input-mapping";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-export type PrefetchedMapping = {
-  service_id: string;
-  provider: string;
-  provider_service_id: string;
-  provider_parameter_key: string;
-  transform_id: string;
-  transform_version: number;
-  provider_required: boolean;
-  omit_when_blank: boolean;
-  schema_version: number;
-  active: boolean;
-  vanta_input_field_key: string;
-};
+export type PrefetchedMapping = ProviderInputMapping;
 
 export type PrefetchedFulfillmentOrder = {
   id: string;
+  public_order_id?: string;
   total: number | string;
   service_id: string;
   payment_status: string;
@@ -56,7 +46,7 @@ async function loadOrderExecutionRecord(orderId: string, prefetched?: Prefetched
   const admin = createSupabaseAdminClient();
   const { data: order, error } = await admin
     .from("orders")
-    .select("id,total,input_schema_version,input_schema_snapshot,input_values")
+    .select("id,public_order_id,total,input_schema_version,input_schema_snapshot,input_values")
     .eq("id", orderId)
     .maybeSingle();
   if (error) throw error;
@@ -95,12 +85,12 @@ export async function loadDynamicOrderExecutionContext(
     const admin = createSupabaseAdminClient();
     const { data: fetchedMappings, error: mappingError } = await admin
       .from("service_provider_input_mappings")
-      .select("service_id,provider,provider_service_id,provider_parameter_key,transform_id,transform_version,provider_required,omit_when_blank,schema_version,active,vanta_input_field_key")
+      .select("service_id,provider,provider_service_id,provider_parameter_key,transform_id,transform_version,provider_required,omit_when_blank,schema_version,active,service_input_fields!service_provider_input_mappings_service_field_fk(key)")
       .eq("service_id", order.service_id)
       .eq("active", true)
       .order("created_at", { ascending: true });
     if (mappingError) throw mappingError;
-    mappings = fetchedMappings;
+    mappings = normalizePersistedProviderInputMappings(fetchedMappings);
   }
   if (!Array.isArray(mappings) || mappings.length === 0) throw new Error("Dynamic order is missing active provider mappings.");
 
@@ -142,9 +132,34 @@ export async function fulfillPaidOrder(
     quantity: number;
     prefetchedOrder?: PrefetchedFulfillmentOrder | null;
     prefetchedMappings?: PrefetchedMapping[] | null;
+    allowLiveSubmission?: boolean;
+    canaryOrderAuthorization?: boolean;
+    orderSpecificAuthorization?: "VNT-610A68";
   },
   deps: FulfillmentDeps = {},
 ) {
+  const executionRecord = await loadOrderExecutionRecord(input.orderId, input.prefetchedOrder);
+  const canaryOrderId = process.env.RELIABLESMM_CANARY_ORDER_ID;
+  const orderSpecificAuthorization =
+    input.orderSpecificAuthorization === "VNT-610A68" &&
+    input.orderId === "6de6cd32-998f-4d61-b4bc-8a6ac4eff5b6" &&
+    executionRecord?.public_order_id === "VNT-610A68";
+  const existingCanaryAuthorization =
+    Boolean(canaryOrderId) &&
+    canaryOrderId === input.orderId &&
+    input.canaryOrderAuthorization === true &&
+    input.allowLiveSubmission === true;
+  const globalLiveAuthorization =
+    process.env.PANELS_LIVE_FULFILLMENT_ENABLED === "true" &&
+    input.allowLiveSubmission === true &&
+    canaryOrderId !== input.orderId;
+  if (
+    (canaryOrderId && !existingCanaryAuthorization && !orderSpecificAuthorization && !globalLiveAuthorization) ||
+    (input.allowLiveSubmission === true && !existingCanaryAuthorization && !orderSpecificAuthorization && !globalLiveAuthorization)
+  ) {
+    throw new Error("Fulfillment is restricted to the explicitly authorized canary order.");
+  }
+
   const defaultDeps: Required<FulfillmentDeps> = {
     resolveProviderForService,
     loadDynamicOrderExecutionContext,
@@ -154,7 +169,6 @@ export async function fulfillPaidOrder(
   };
   const resolved = { ...defaultDeps, ...deps };
 
-  const executionRecord = await loadOrderExecutionRecord(input.orderId, input.prefetchedOrder);
   const executionMode = resolveOrderExecutionMode(executionRecord);
 
   switch (executionMode) {
@@ -191,10 +205,13 @@ export async function fulfillPaidOrder(
       return await resolved.fulfillReliableSMMDynamicOrder({
         orderId: input.orderId,
         serviceId: dynamic.serviceId,
+        vantaSlug: input.vantaSlug,
+        targetType: input.targetType,
         provider: dynamic.provider,
         providerServiceId: dynamic.providerServiceId,
         payload: dynamic.payload,
         quantity: input.quantity,
+        allowLiveSubmission: input.allowLiveSubmission === true,
       });
     }
   }

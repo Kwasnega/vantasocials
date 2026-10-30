@@ -33,12 +33,7 @@ export function DeleteServiceButton({
         setError(typeof result.error === "string" ? result.error : "Failed to delete service.");
         return;
       }
-      if (result.deactivated) {
-        setConfirming(false);
-        setMessage(typeof result.message === "string" ? result.message : "The service was deactivated.");
-      } else {
-        setConfirming(false);
-      }
+      setConfirming(false);
       router.refresh();
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Error deleting service. Check your connection and try again.");
@@ -66,8 +61,8 @@ export function DeleteServiceButton({
       {confirming && (
         <DeleteConfirmationCard
           title={`Delete ${serviceName}?`}
-          description="This removes the service from the catalog if it has no protected history or configuration."
-          warning="Services with order history, provider mappings, pricing history, or configured inputs are deactivated instead of permanently deleted."
+          description="This permanently removes the service and all its configuration from the catalog."
+          warning="Services with existing customer orders cannot be deleted."
           confirmLabel="Delete service"
           busyLabel="Deleting…"
           busy={busy}

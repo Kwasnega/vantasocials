@@ -134,7 +134,7 @@ export async function POST(request: Request) {
       max_quantity: input.maxQuantity,
       selling_rate: input.sellingRatePerUnit,
       currency: input.currency,
-      active: false,
+      active: true,
     })
     .select("id,platform_id,name,slug,category,description,service_type,target_type,min_quantity,max_quantity,selling_rate,currency,active,provider,provider_service_id")
     .single();

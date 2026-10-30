@@ -18,7 +18,26 @@ const platforms: Platform[] = [
   { id: "telegram", name: "Telegram", icon: "TG", services: [{ name: "Channel members", targetType: "channel" }, { name: "Post views", targetType: "url" }, { name: "Reactions", targetType: "url" }] },
 ];
 
-const ArrowUpRight = () => <span aria-hidden="true" className="arrow">↗</span>;
+
+
+const ArrowUpRight = () => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    className="arrow"
+    style={{ display: "inline-block", verticalAlign: "middle" }}
+  >
+    <line x1="7" y1="17" x2="17" y2="7" />
+    <polyline points="7 7 17 7 17 17" />
+  </svg>
+);
 
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -53,8 +72,8 @@ export default function Home() {
         <h1><span>Grow your presence.</span><span>Across every platform.</span></h1>
         <p className="intro">Premium social growth, without the guesswork. Choose your platform, select a service, and get moving — fast.</p>
         <div className="hero-buttons">
-          <Link className="button button-solid" href="/account">Explore platforms <ArrowUpRight /></Link>
-          <a className="button button-outline" href="#how">How it works <ArrowUpRight /></a>
+          <Link className="button button-solid" href="/account">Explore platforms</Link>
+          <a className="button button-outline" href="#how">How it works</a>
         </div>
       </section>
 
@@ -77,7 +96,7 @@ export default function Home() {
         <p className="section-kicker">THE VANTA WAY</p>
         <h2 id="how-heading">How it works<br />in four easy steps</h2>
         <p>Choose a platform and service, set your target and quantity, then complete your order in minutes.</p>
-        <Link className="how-cta" href="/account">Explore services <ArrowUpRight /></Link>
+        <Link className="how-cta" href="/account">Explore services</Link>
       </div>
       <div className="steps-grid">
         <article className="step-card"><span className="step-tag lime">Step 01</span><h3>Choose your platform</h3><p>Start with Instagram, TikTok, YouTube, Facebook, X, or Telegram.</p></article>

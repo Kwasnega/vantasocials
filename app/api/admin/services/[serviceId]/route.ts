@@ -4,6 +4,55 @@ import { requireAdmin } from "../../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../lib/security/rate-limit";
 
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ serviceId: string }> }
+) {
+  const { user, admin } = await requireAdmin();
+  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+
+  try {
+    const rejected = await enforceAdminRateLimit(request, user.id, "service-mutation", [30, 30]);
+    if (rejected) return rejected;
+  } catch {
+    return limiterUnavailable();
+  }
+
+  const { serviceId } = await params;
+  if (!serviceId) return NextResponse.json({ error: "Service ID is required." }, { status: 400 });
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (typeof body.active === "boolean") {
+    updates.active = body.active;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
+  }
+
+  const db = createSupabaseAdminClient();
+  const { data, error } = await db
+    .from("services")
+    .update(updates)
+    .eq("id", serviceId)
+    .select("id,active")
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: "Unable to update service." }, { status: 500 });
+  }
+  if (!data) return NextResponse.json({ error: "Service not found." }, { status: 404 });
+
+  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
+  return NextResponse.json({ service: data });
+}
+
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ serviceId: string }> }

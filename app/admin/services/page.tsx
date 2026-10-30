@@ -5,6 +5,7 @@ import { MappingControl } from "./MappingControl";
 import { CreateServiceCard, type AdminPlatform } from "./CreateServiceCard";
 import { BulkImportCard } from "./BulkImportCard";
 import { DeleteServiceButton } from "./DeleteServiceButton";
+import { PublishServiceButton } from "./PublishServiceButton";
 import { DeletePlatformButton } from "./DeletePlatformButton";
 import { getPlatformLogoUrl } from "../../../lib/catalog/logo";
 import { AdminEmptyState, AdminQueryError } from "../AdminDataState";
@@ -131,6 +132,9 @@ function ServiceTable({
               <span>Estimates only; actual provider charges and FX may differ.</span>
             </footer>
             <div className="admin-economics-actions">
+              {!service.active && (
+                <PublishServiceButton serviceId={service.id} serviceName={service.name} />
+              )}
               <Link href={`/admin/services/${service.id}/inputs`}>Configure Inputs</Link>
               <PriceOnlyControl
                 slug={service.slug}

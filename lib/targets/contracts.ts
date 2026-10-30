@@ -239,7 +239,7 @@ export function getTargetContractForService(input: {
   }
   if (platform === "tiktok") {
     if (targetType === "username") return "TIKTOK_PROFILE";
-    if (targetType === "url" || targetType === "post_url") return isCommentSlug ? "TIKTOK_COMMENT" : null;
+    if (targetType === "url" || targetType === "post_url") return isCommentSlug ? "TIKTOK_COMMENT" : "TIKTOK_VIDEO";
     if (targetType === "video_url") return isCommentSlug ? "TIKTOK_COMMENT" : "TIKTOK_VIDEO";
   }
   if (platform === "youtube") {

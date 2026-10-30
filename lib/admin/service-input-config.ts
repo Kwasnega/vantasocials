@@ -55,6 +55,18 @@ export function extractApprovedProviderParameters(rawMetadata: unknown): string[
     }
   }
   if (!seen.has("link")) parsed.push("link");
+  if (
+    metadata &&
+    (
+      metadata.type === "Custom Comments" ||
+      (typeof metadata.category === "string" && /comments/i.test(metadata.category)) ||
+      (typeof metadata.name === "string" && /comments/i.test(metadata.name))
+    ) &&
+    !seen.has("comments")
+  ) {
+    seen.add("comments");
+    parsed.push("comments");
+  }
   return parsed;
 }
 
@@ -338,7 +350,7 @@ export function getDefaultServiceFieldAndMapping(options: {
     displayOrder: 1,
     placeholder,
     helpText,
-    validationConfig: { maxLength: 2048 },
+    validationConfig: inputType === "comments" ? { maxLength: 10000, maxLines: 100, maxLineLength: 500 } : { maxLength: 2048 },
     schemaVersion: 1,
     active: true,
   };
@@ -347,8 +359,8 @@ export function getDefaultServiceFieldAndMapping(options: {
     ? {
         provider: "reliablesmm",
         providerServiceId,
-        providerParameterKey: "link",
-        transformId: "normalize_url",
+        providerParameterKey: inputType === "comments" ? "comments" : "link",
+        transformId: inputType === "comments" ? "normalize_comments" : "normalize_url",
         transformVersion: 1,
         providerRequired: true,
         omitWhenBlank: false,

@@ -478,7 +478,35 @@ export function ServiceInputConfiguration({
               <label style={lbl}>
                 VANTA field to map
                 <select style={sel} value={mappingForm.serviceInputFieldId}
-                  onChange={(e) => setMappingForm((c) => ({ ...c, serviceInputFieldId: e.target.value }))}>
+                  onChange={(e) => {
+                    const newFieldId = e.target.value;
+                    const fieldObj = fieldChoices.find((f) => f.id === newFieldId);
+                    setMappingForm((c) => {
+                      let nextKey = c.providerParameterKey;
+                      let nextTransform = c.transformId;
+                      let nextVersion = c.transformVersion;
+                      if (fieldObj?.input_type === "comments") {
+                        if (selectedCatalog?.parameterKeys.includes("comments")) {
+                          nextKey = "comments";
+                        }
+                        nextTransform = "normalize_comments";
+                        nextVersion = 1;
+                      } else if (fieldObj?.input_type === "url" || fieldObj?.input_type === "post_url") {
+                        if (selectedCatalog?.parameterKeys.includes("link")) {
+                          nextKey = "link";
+                        }
+                        nextTransform = "normalize_url";
+                        nextVersion = 1;
+                      }
+                      return {
+                        ...c,
+                        serviceInputFieldId: newFieldId,
+                        providerParameterKey: nextKey,
+                        transformId: nextTransform,
+                        transformVersion: nextVersion,
+                      };
+                    });
+                  }}>
                   {fieldChoices.map((f) => <option key={f.id} value={f.id}>{f.label} ({f.key})</option>)}
                 </select>
               </label>
@@ -489,12 +517,30 @@ export function ServiceInputConfiguration({
                   onChange={(e) => {
                     const provId = e.target.value;
                     const catRow = catalogOptions.find((r) => r.provider_service_id === provId);
-                    // Default to 'link' parameter if available
-                    const defaultParam = catRow?.parameterKeys.includes("link") ? "link" : (catRow?.parameterKeys[0] || "");
+                    // Smart default parameter: if comments field is selected and provider has 'comments', pick 'comments'
+                    let defaultParam = "";
+                    let defaultTransform = mappingForm.transformId;
+                    let defaultVersion = mappingForm.transformVersion;
+                    if (selectedField?.input_type === "comments" && catRow?.parameterKeys.includes("comments")) {
+                      defaultParam = "comments";
+                      defaultTransform = "normalize_comments";
+                      defaultVersion = 1;
+                    } else if (catRow?.parameterKeys.includes("link")) {
+                      defaultParam = "link";
+                      if (selectedField?.input_type === "url" || selectedField?.input_type === "post_url") {
+                        defaultTransform = "normalize_url";
+                        defaultVersion = 1;
+                      }
+                    } else {
+                      defaultParam = catRow?.parameterKeys[0] || "";
+                    }
+
                     setMappingForm((c) => ({
                       ...c,
                       providerServiceId: provId,
                       providerParameterKey: defaultParam,
+                      transformId: defaultTransform,
+                      transformVersion: defaultVersion,
                     }));
                   }}>
                   <option value="">— Select a provider service —</option>
@@ -527,16 +573,37 @@ export function ServiceInputConfiguration({
                 <label style={lbl}>
                   Provider parameter key
                   <select style={sel} value={mappingForm.providerParameterKey}
-                    onChange={(e) => setMappingForm((c) => ({ ...c, providerParameterKey: e.target.value }))}>
+                    onChange={(e) => {
+                      const param = e.target.value;
+                      setMappingForm((c) => {
+                        let nextTransform = c.transformId;
+                        let nextVersion = c.transformVersion;
+                        if (param === "comments") {
+                          nextTransform = "normalize_comments";
+                          nextVersion = 1;
+                        } else if (param === "link") {
+                          nextTransform = "normalize_url";
+                          nextVersion = 1;
+                        }
+                        return {
+                          ...c,
+                          providerParameterKey: param,
+                          transformId: nextTransform,
+                          transformVersion: nextVersion,
+                        };
+                      });
+                    }}>
                     <option value="">— Select parameter —</option>
                     {selectedCatalog.parameterKeys.map((k: string) => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </label>
               )}
               {mappingForm.providerParameterKey === "link" && !linkFieldCompatible && (
-                <p style={{ margin: 0, color: "#ff9baa", fontSize: "12px" }}>
-                  `link` requires an input type that matches this VANTA service target (`{service.target_type}`; `url` and `post_url` are compatible).
-                </p>
+                <div style={{ padding: "8px 12px", borderRadius: "8px", background: "rgba(255,113,136,.12)", border: "1px solid rgba(255,113,136,.3)" }}>
+                  <p style={{ margin: 0, color: "#ff9baa", fontSize: "12px", lineHeight: 1.4 }}>
+                    ⚠️ `link` is for the destination URL ({service.target_type}). If you are mapping comments text, choose <strong>comments</strong> as the provider parameter key above!
+                  </p>
+                </div>
               )}
               {eligibility && (
                 <p role="status" style={{ margin: 0, color: eligibility.status === "ELIGIBLE" ? "#86f415" : "#ffcf7a", fontSize: "13px" }}>

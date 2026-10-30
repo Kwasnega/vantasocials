@@ -44,11 +44,31 @@ export default async function ServiceInputConfigurationPage({ params }: { params
 
   // Load relevant provider catalog candidates:
   // 1. If service is already mapped to a provider service, fetch that exact service.
-  // 2. Also load candidates matching the platform (capped at 100) so admin can select or re-map.
+  // 2. Also load candidates matching the platform (or its aliases like x/twitter) so admin can select or re-map.
   let catalog: unknown[] = [];
   const mappedProviderServiceId = (service as { provider_service_id?: string | null }).provider_service_id;
   const platform = (service as { platforms?: { name?: string; slug?: string } | null }).platforms;
-  const platformSearch = platform?.name || platform?.slug || "";
+  const platformSlug = String(platform?.slug ?? "").toLowerCase();
+  const platformName = String(platform?.name ?? "").toLowerCase();
+
+  // Search keywords for the platform to match in provider catalog name/category
+  const searchTerms = new Set<string>();
+  if (platformName) searchTerms.add(platformName);
+  if (platformSlug) searchTerms.add(platformSlug);
+
+  // Platform specific aliases (e.g. X is called Twitter on ReliableSMM)
+  if (platformSlug === "x" || platformName === "x") {
+    searchTerms.add("twitter");
+    searchTerms.add("tweet");
+  } else if (platformSlug === "facebook" || platformName === "facebook") {
+    searchTerms.add("fb");
+  } else if (platformSlug === "instagram" || platformName === "instagram") {
+    searchTerms.add("ig");
+  } else if (platformSlug === "youtube" || platformName === "youtube") {
+    searchTerms.add("yt");
+  } else if (platformSlug === "telegram" || platformName === "telegram") {
+    searchTerms.add("tg");
+  }
 
   try {
     if (mappedProviderServiceId) {
@@ -61,14 +81,19 @@ export default async function ServiceInputConfigurationPage({ params }: { params
       if (catalogRow) catalog.push(catalogRow);
     }
 
-    if (platformSearch) {
+    if (searchTerms.size > 0) {
+      // Build an OR filter across all alias terms (e.g. name.ilike.%x%,name.ilike.%twitter%)
+      const orFilter = Array.from(searchTerms)
+        .map((term) => `name.ilike.%${term}%`)
+        .join(",");
+
       let candidateQuery = db
         .from("provider_catalog_services")
         .select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata")
         .eq("provider", "reliablesmm")
         .eq("provider_status", "ACTIVE")
-        .ilike("name", `%${platformSearch}%`)
-        .limit(100);
+        .or(orFilter)
+        .limit(200);
 
       if (mappedProviderServiceId) {
         candidateQuery = candidateQuery.neq("provider_service_id", mappedProviderServiceId);

@@ -2,7 +2,7 @@
 import { useRef, useState } from "react";
 
 export default function WalletDepositForm() {
-  const [amount, setAmount] = useState("10.00");
+  const [amount, setAmount] = useState("35.00");
   const [state, setState] = useState("idle");
   const [message, setMessage] = useState("");
   const idempotencyKey = useRef(crypto.randomUUID());
@@ -62,7 +62,7 @@ export default function WalletDepositForm() {
           onChange={(event) => setAmount(event.target.value)}
         />
       </label>
-      <small className="wallet-deposit-limits">Minimum GHS 1.00 <span aria-hidden="true">·</span> Maximum GHS 10,000.00</small>
+      <small className="wallet-deposit-limits">Minimum GHS 35.00 <span aria-hidden="true">·</span> Maximum GHS 10,000.00</small>
       <button type="button" onClick={submit} disabled={state === "loading" || state === "redirecting"}>
         {state === "loading" ? "Starting…" : state === "redirecting" ? "Redirecting…" : "Deposit with Paystack"}
       </button>

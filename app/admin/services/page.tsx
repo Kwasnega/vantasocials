@@ -3,6 +3,7 @@ import { requireAdmin } from "../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../lib/supabase/server";
 import { MappingControl } from "./MappingControl";
 import { CreateServiceCard, type AdminPlatform } from "./CreateServiceCard";
+import { BulkImportCard } from "./BulkImportCard";
 import { DeleteServiceButton } from "./DeleteServiceButton";
 import { DeletePlatformButton } from "./DeletePlatformButton";
 import { getPlatformLogoUrl } from "../../../lib/catalog/logo";
@@ -309,6 +310,7 @@ export default async function AdminServicesPage() {
           <p>Create a service and place it under the right social platform.</p>
         </div>
         <CreateServiceCard platforms={platformsWithCounts} triggerClassName="services-add-primary" fxRate={fxRate} fxError={fxError} fxUpdatedAt={fxUpdatedAt} fxSource={fxSource} />
+        <BulkImportCard platforms={platformsWithCounts} fxRate={fxRate} fxError={fxError} />
       </section>}
       {servicesError && <AdminQueryError message="Service records could not be loaded. Catalog counts and lists are unavailable." />}
       {platformsError && <AdminQueryError message="Active platforms could not be loaded." />}

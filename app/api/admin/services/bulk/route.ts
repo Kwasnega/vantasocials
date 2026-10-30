@@ -156,7 +156,7 @@ export async function POST(request: Request) {
         name: catalog.name,
       },
     });
-    if (eligibility.status !== "ELIGIBLE") {
+    if (eligibility.status === "BLOCKED") {
       results.push({ providerServiceId, name: input.name, status: "error", error: `Provider eligibility failed: ${eligibility.reason}` });
       continue;
     }

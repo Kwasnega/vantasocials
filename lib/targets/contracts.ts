@@ -11,7 +11,26 @@ export type TargetContract =
   | "YOUTUBE_COMMENT"
   | "FACEBOOK_PAGE"
   | "FACEBOOK_POST"
-  | "FACEBOOK_VIDEO";
+  | "FACEBOOK_VIDEO"
+  // Extended platform contracts — accept any valid HTTPS URL for the platform
+  | "X_PROFILE"
+  | "X_POST"
+  | "LINKEDIN_PROFILE"
+  | "LINKEDIN_POST"
+  | "TELEGRAM_CHANNEL"
+  | "TELEGRAM_POST"
+  | "PINTEREST_PROFILE"
+  | "PINTEREST_PIN"
+  | "SPOTIFY_PROFILE"
+  | "SPOTIFY_TRACK"
+  | "TWITCH_CHANNEL"
+  | "REDDIT_PROFILE"
+  | "REDDIT_POST"
+  | "SNAPCHAT_PROFILE"
+  | "THREADS_PROFILE"
+  | "THREADS_POST"
+  | "GENERIC_PROFILE"
+  | "GENERIC_URL";
 
 export type ContractResult = { valid: true; target: string } | { valid: false; reason: string };
 export type TargetType = "username" | "url" | "post_url" | "video_url" | "channel" | "page";
@@ -106,6 +125,97 @@ const requirements: Record<TargetContract, Omit<TargetRequirements, "contract">>
     example: "https://www.facebook.com/page-name/videos/VIDEO_ID",
     description: "Use a direct Facebook video or reel link.",
   },
+  // ── Extended platform contracts ──────────────────────────────────────────
+  X_PROFILE: {
+    label: "X (Twitter) profile URL",
+    example: "https://x.com/username",
+    description: "Use an X (Twitter) profile link.",
+  },
+  X_POST: {
+    label: "X (Twitter) post URL",
+    example: "https://x.com/username/status/1234567890",
+    description: "Use a direct X (Twitter) post link.",
+  },
+  LINKEDIN_PROFILE: {
+    label: "LinkedIn profile or page URL",
+    example: "https://www.linkedin.com/in/username",
+    description: "Use a LinkedIn personal profile or company page link.",
+  },
+  LINKEDIN_POST: {
+    label: "LinkedIn post URL",
+    example: "https://www.linkedin.com/posts/username_activity-ID",
+    description: "Use a direct LinkedIn post link.",
+  },
+  TELEGRAM_CHANNEL: {
+    label: "Telegram channel URL",
+    example: "https://t.me/channelname",
+    description: "Use a public Telegram channel link.",
+  },
+  TELEGRAM_POST: {
+    label: "Telegram post URL",
+    example: "https://t.me/channelname/123",
+    description: "Use a direct Telegram post link.",
+  },
+  PINTEREST_PROFILE: {
+    label: "Pinterest profile URL",
+    example: "https://www.pinterest.com/username",
+    description: "Use a Pinterest profile link.",
+  },
+  PINTEREST_PIN: {
+    label: "Pinterest pin URL",
+    example: "https://www.pinterest.com/pin/PIN_ID",
+    description: "Use a direct Pinterest pin link.",
+  },
+  SPOTIFY_PROFILE: {
+    label: "Spotify artist or profile URL",
+    example: "https://open.spotify.com/artist/ARTIST_ID",
+    description: "Use a Spotify artist or profile link.",
+  },
+  SPOTIFY_TRACK: {
+    label: "Spotify track URL",
+    example: "https://open.spotify.com/track/TRACK_ID",
+    description: "Use a direct Spotify track link.",
+  },
+  TWITCH_CHANNEL: {
+    label: "Twitch channel URL",
+    example: "https://www.twitch.tv/username",
+    description: "Use a Twitch channel link.",
+  },
+  REDDIT_PROFILE: {
+    label: "Reddit profile URL",
+    example: "https://www.reddit.com/user/username",
+    description: "Use a Reddit user profile link.",
+  },
+  REDDIT_POST: {
+    label: "Reddit post URL",
+    example: "https://www.reddit.com/r/subreddit/comments/POST_ID",
+    description: "Use a direct Reddit post link.",
+  },
+  SNAPCHAT_PROFILE: {
+    label: "Snapchat profile URL",
+    example: "https://www.snapchat.com/add/username",
+    description: "Use a Snapchat profile link.",
+  },
+  THREADS_PROFILE: {
+    label: "Threads profile URL",
+    example: "https://www.threads.net/@username",
+    description: "Use a Threads profile link.",
+  },
+  THREADS_POST: {
+    label: "Threads post URL",
+    example: "https://www.threads.net/@username/post/POST_ID",
+    description: "Use a direct Threads post link.",
+  },
+  GENERIC_PROFILE: {
+    label: "Profile URL",
+    example: "https://platform.com/username",
+    description: "Use a valid HTTPS profile link for the platform.",
+  },
+  GENERIC_URL: {
+    label: "Content URL",
+    example: "https://platform.com/content/ID",
+    description: "Use a valid HTTPS link to the content on the platform.",
+  },
 };
 
 export const getTargetContract = (slug: string) => legacyTargetContracts[slug] ?? null;
@@ -140,6 +250,55 @@ export function getTargetContractForService(input: {
     if (targetType === "page") return "FACEBOOK_PAGE";
     if (targetType === "url" || targetType === "post_url") return "FACEBOOK_POST";
     if (targetType === "video_url") return "FACEBOOK_VIDEO";
+  }
+  // ── Extended platforms ───────────────────────────────────────────────────
+  if (platform === "x" || platform === "twitter") {
+    if (targetType === "username" || targetType === "url" || targetType === "post_url") {
+      return isCommentSlug ? "X_POST" : targetType === "username" ? "X_PROFILE" : "X_POST";
+    }
+    // followers/profile services default to X_PROFILE
+    return "X_PROFILE";
+  }
+  if (platform === "linkedin") {
+    if (targetType === "username" || targetType === "url" || targetType === "post_url") {
+      return isCommentSlug ? "LINKEDIN_POST" : targetType === "username" ? "LINKEDIN_PROFILE" : "LINKEDIN_POST";
+    }
+    return "LINKEDIN_PROFILE";
+  }
+  if (platform === "telegram") {
+    if (targetType === "url" || targetType === "post_url") return "TELEGRAM_POST";
+    // username/channel target → channel contract
+    return "TELEGRAM_CHANNEL";
+  }
+  if (platform === "pinterest") {
+    if (targetType === "url" || targetType === "post_url") return "PINTEREST_PIN";
+    return "PINTEREST_PROFILE";
+  }
+  if (platform === "spotify") {
+    if (targetType === "url" || targetType === "post_url") return "SPOTIFY_TRACK";
+    return "SPOTIFY_PROFILE";
+  }
+  if (platform === "twitch") {
+    return "TWITCH_CHANNEL";
+  }
+  if (platform === "reddit") {
+    if (targetType === "url" || targetType === "post_url") return "REDDIT_POST";
+    return "REDDIT_PROFILE";
+  }
+  if (platform === "snapchat") {
+    return "SNAPCHAT_PROFILE";
+  }
+  if (platform === "threads") {
+    if (targetType === "url" || targetType === "post_url") return "THREADS_POST";
+    return "THREADS_PROFILE";
+  }
+  // ── Fallback: any known platform with any target type ───────────────────
+  // Rather than returning null (which blocks service creation), return a
+  // generic contract so the admin can always save their mapping.
+  if (platform) {
+    return targetType === "url" || targetType === "post_url" || targetType === "video_url"
+      ? "GENERIC_URL"
+      : "GENERIC_PROFILE";
   }
   return null;
 }
@@ -216,8 +375,37 @@ function validateContract(contract: TargetContract, value: string, normalize: bo
     FACEBOOK_PAGE: ["facebook.com", "www.facebook.com", "m.facebook.com"],
     FACEBOOK_POST: ["facebook.com", "www.facebook.com", "m.facebook.com"],
     FACEBOOK_VIDEO: ["facebook.com", "www.facebook.com", "m.facebook.com"],
+    X_PROFILE: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
+    X_POST: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
+    LINKEDIN_PROFILE: ["linkedin.com", "www.linkedin.com"],
+    LINKEDIN_POST: ["linkedin.com", "www.linkedin.com"],
+    TELEGRAM_CHANNEL: ["t.me", "telegram.me"],
+    TELEGRAM_POST: ["t.me", "telegram.me"],
+    PINTEREST_PROFILE: ["pinterest.com", "www.pinterest.com", "pinterest.co.uk", "www.pinterest.co.uk"],
+    PINTEREST_PIN: ["pinterest.com", "www.pinterest.com", "pinterest.co.uk", "www.pinterest.co.uk"],
+    SPOTIFY_PROFILE: ["open.spotify.com"],
+    SPOTIFY_TRACK: ["open.spotify.com"],
+    TWITCH_CHANNEL: ["twitch.tv", "www.twitch.tv"],
+    REDDIT_PROFILE: ["reddit.com", "www.reddit.com"],
+    REDDIT_POST: ["reddit.com", "www.reddit.com"],
+    SNAPCHAT_PROFILE: ["snapchat.com", "www.snapchat.com"],
+    THREADS_PROFILE: ["threads.net", "www.threads.net"],
+    THREADS_POST: ["threads.net", "www.threads.net"],
+    // Generic contracts accept any host (validated below as a loose HTTPS URL)
+    GENERIC_PROFILE: [],
+    GENERIC_URL: [],
   };
-  if (!allowedHosts[contract].includes(parsed.hostname)) {
+  // For generic contracts, any HTTPS URL with a non-empty path is valid.
+  // The allowedHosts list is empty, so we skip the host check and do a loose validation.
+  if (contract === "GENERIC_PROFILE" || contract === "GENERIC_URL") {
+    return parsed.pathname.length > 1
+      ? { valid: true, target: normalizeIfConfigured(value, normalize) }
+      : fail(requirementError(contract));
+  }
+
+  // For extended platform contracts, check the allowed hosts first.
+  const hostList = allowedHosts[contract];
+  if (!hostList.includes(parsed.hostname)) {
     return fail(requirementError(contract));
   }
 
@@ -287,6 +475,58 @@ function validateContract(contract: TargetContract, value: string, normalize: bo
     case "FACEBOOK_VIDEO":
       matches = /^\/(?:[A-Za-z0-9._-]+\/)?videos\/[A-Za-z0-9_-]+\/?$/.test(path)
         || /^\/(?:reel|reels)\/[A-Za-z0-9_-]+\/?$/.test(path);
+      break;
+    // ── Extended platform contracts (loose path validation) ──────────────
+    case "X_PROFILE":
+      matches = /^\/[A-Za-z0-9_]{1,50}\/?$/.test(path)
+        && !new Set(["i", "intent", "search", "explore", "settings", "home", "login"]).has(path.split("/")[1].toLowerCase());
+      break;
+    case "X_POST":
+      matches = /^\/[A-Za-z0-9_]{1,50}\/status\/[0-9]+\/?$/.test(path);
+      break;
+    case "LINKEDIN_PROFILE":
+      matches = /^\/(?:in|company|school)\/[A-Za-z0-9_%-]+\/?/.test(path);
+      break;
+    case "LINKEDIN_POST":
+      matches = /^\/(?:posts|feed\/update)\//.test(path) || /^\/in\/[A-Za-z0-9_%-]+\//.test(path);
+      break;
+    case "TELEGRAM_CHANNEL":
+      matches = /^\/[A-Za-z0-9_]{3,50}\/?$/.test(path);
+      break;
+    case "TELEGRAM_POST":
+      matches = /^\/[A-Za-z0-9_]{3,50}\/[0-9]+\/?$/.test(path);
+      break;
+    case "PINTEREST_PROFILE":
+      matches = /^\/[A-Za-z0-9_-]+\/?$/.test(path)
+        && !new Set(["pin", "search", "explore", "ideas"]).has(path.split("/")[1].toLowerCase());
+      break;
+    case "PINTEREST_PIN":
+      matches = /^\/pin\/[0-9]+\/?$/.test(path);
+      break;
+    case "SPOTIFY_PROFILE":
+      matches = /^\/(?:artist|user|show)\/[A-Za-z0-9]+\/?$/.test(path);
+      break;
+    case "SPOTIFY_TRACK":
+      matches = /^\/(?:track|episode|playlist|album)\/[A-Za-z0-9]+\/?$/.test(path);
+      break;
+    case "TWITCH_CHANNEL":
+      matches = /^\/[A-Za-z0-9_]{3,50}\/?$/.test(path)
+        && !new Set(["directory", "search", "subscriptions", "settings"]).has(path.split("/")[1].toLowerCase());
+      break;
+    case "REDDIT_PROFILE":
+      matches = /^\/user\/[A-Za-z0-9_-]+\/?$/.test(path);
+      break;
+    case "REDDIT_POST":
+      matches = /^\/r\/[A-Za-z0-9_]+\/comments\/[A-Za-z0-9_]+/.test(path);
+      break;
+    case "SNAPCHAT_PROFILE":
+      matches = /^\/(?:add\/)?[A-Za-z0-9._-]{3,50}\/?$/.test(path);
+      break;
+    case "THREADS_PROFILE":
+      matches = /^\/@[A-Za-z0-9._]{1,50}\/?$/.test(path);
+      break;
+    case "THREADS_POST":
+      matches = /^\/@[A-Za-z0-9._]{1,50}\/post\/[A-Za-z0-9_-]+\/?$/.test(path);
       break;
   }
 

@@ -106,7 +106,7 @@ export async function POST(request: Request) {
         name: catalog.name,
       },
     });
-    if (eligibility.status !== "ELIGIBLE") {
+    if (eligibility.status === "BLOCKED") {
       return NextResponse.json({ error: `This provider service cannot be mapped: ${eligibility.reason}` }, { status: 409 });
     }
 

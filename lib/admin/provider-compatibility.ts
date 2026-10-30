@@ -52,6 +52,53 @@ function inferProviderTargetType(platform: string, name: string, category: strin
       return "page";
     }
   }
+  // ── Extended platforms ───────────────────────────────────────────────────
+  // For platforms where the provider metadata doesn't explicitly declare a
+  // target_type, infer from common service name keywords.
+  if (platform === "x" || platform === "twitter") {
+    if (/\b(?:followers?|follow)\b/.test(operation)) return "username";
+    if (/\b(?:likes?|retweets?|replies?|views?|impressions?|comments?)\b/.test(operation)) return "url";
+    return "username"; // default to profile
+  }
+  if (platform === "linkedin") {
+    if (/\b(?:followers?|connections?|follow)\b/.test(operation)) return "username";
+    if (/\b(?:likes?|comments?|views?|reactions?|shares?)\b/.test(operation)) return "url";
+    return "username";
+  }
+  if (platform === "telegram") {
+    if (/\b(?:members?|subscribers?|followers?|views?)\b/.test(operation)) return "username";
+    if (/\b(?:post|message)\b/.test(operation) && /\b(?:views?|reactions?|likes?)\b/.test(operation)) return "url";
+    return "username";
+  }
+  if (platform === "pinterest") {
+    if (/\b(?:followers?|follow)\b/.test(operation)) return "username";
+    if (/\b(?:saves?|repins?|likes?|views?|comments?)\b/.test(operation)) return "url";
+    return "username";
+  }
+  if (platform === "spotify") {
+    if (/\b(?:followers?|monthly\s+listeners?|listeners?)\b/.test(operation)) return "username";
+    if (/\b(?:plays?|streams?|saves?)\b/.test(operation)) return "url";
+    return "username";
+  }
+  if (platform === "twitch") {
+    if (/\b(?:followers?|viewers?|views?)\b/.test(operation)) return "username";
+    return "username";
+  }
+  if (platform === "reddit") {
+    if (/\b(?:karma|followers?)\b/.test(operation)) return "username";
+    if (/\b(?:upvotes?|downvotes?|comments?|views?)\b/.test(operation)) return "url";
+    return "username";
+  }
+  if (platform === "snapchat") {
+    return "username";
+  }
+  if (platform === "threads") {
+    if (/\b(?:followers?|follow)\b/.test(operation)) return "username";
+    if (/\b(?:likes?|views?|comments?|reposts?|shares?)\b/.test(operation)) return "url";
+    return "username";
+  }
+  // Any other platform: default to username (profile-based service)
+  if (platform) return "username";
   return null;
 }
 

@@ -138,7 +138,7 @@ export function getTargetContractForService(input: {
   }
   if (platform === "facebook") {
     if (targetType === "page") return "FACEBOOK_PAGE";
-    if (targetType === "post_url") return "FACEBOOK_POST";
+    if (targetType === "url" || targetType === "post_url") return "FACEBOOK_POST";
     if (targetType === "video_url") return "FACEBOOK_VIDEO";
   }
   return null;

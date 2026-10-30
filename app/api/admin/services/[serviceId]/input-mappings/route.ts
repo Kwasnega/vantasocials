@@ -14,25 +14,44 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ser
   if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   const { serviceId } = await params;
   const db = createSupabaseAdminClient();
+
   const [
     { data: mappings, error: mappingsError },
-    { data: catalog, error: catalogError },
     { data: fields, error: fieldsError },
+    { data: service, error: serviceError },
   ] = await Promise.all([
     db.from("service_provider_input_mappings").select(SERVICE_INPUT_MAPPING_SELECT_COLUMNS).eq("service_id", serviceId).order("created_at", { ascending: false }),
-    db.from("provider_catalog_services").select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata").eq("provider", "reliablesmm").eq("provider_status", "ACTIVE").order("provider_service_id"),
     db.from("service_input_fields").select("id,key,label,input_type").eq("service_id", serviceId).order("display_order", { ascending: true }),
+    db.from("services").select("provider_service_id").eq("id", serviceId).maybeSingle(),
   ]);
-  if (mappingsError || catalogError || fieldsError) {
+
+  if (mappingsError || fieldsError || serviceError) {
     return NextResponse.json({ error: "Unable to load service input mapping data." }, { status: 500 });
   }
+
+  // Only fetch the catalog row for the specific provider service mapped to this service.
+  // Avoids loading the entire 4,000+ row catalog on every page open.
+  const mappedProviderServiceId = service?.provider_service_id ? String(service.provider_service_id) : null;
+  let providerCatalog: unknown[] = [];
+  if (mappedProviderServiceId) {
+    const { data: catalogRow } = await db
+      .from("provider_catalog_services")
+      .select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata")
+      .eq("provider", "reliablesmm")
+      .eq("provider_service_id", mappedProviderServiceId)
+      .maybeSingle();
+    if (catalogRow) {
+      providerCatalog = [{
+        ...catalogRow,
+        parameterKeys: extractApprovedProviderParameters(catalogRow.raw_metadata),
+      }];
+    }
+  }
+
   return NextResponse.json({
     mappings: mappings ?? [],
     fields: fields ?? [],
-    providerCatalog: (catalog ?? []).map((row) => ({
-      ...row,
-      parameterKeys: extractApprovedProviderParameters(row.raw_metadata),
-    })),
+    providerCatalog,
   });
 }
 

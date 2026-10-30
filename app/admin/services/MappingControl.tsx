@@ -198,7 +198,7 @@ export function MappingControl({
     if (
       priceLoadState !== "loaded" ||
       !selected ||
-      selected.eligibility !== "ELIGIBLE" ||
+      selected.eligibility === "BLOCKED" ||
       !validCustomerPrice(price)
     ) return;
     setBusy(true);
@@ -570,7 +570,7 @@ export function MappingControl({
                     className="mapping-confirm"
                     disabled={
                       !selected ||
-                      selected.eligibility !== "ELIGIBLE" ||
+                      selected.eligibility === "BLOCKED" ||
                       !isUnitSupported ||
                       priceLoadState !== "loaded" ||
                       !validCustomerPrice(price) ||
@@ -580,8 +580,6 @@ export function MappingControl({
                   >
                     {busy
                       ? "Saving…"
-                      : selected?.eligibility === "MANUAL_REVIEW"
-                      ? "Provider Review Required"
                       : selected?.eligibility === "BLOCKED"
                       ? "Provider Not Eligible"
                       : "Save Customer Price & Mapping"}

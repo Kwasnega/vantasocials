@@ -210,21 +210,11 @@ export function ensureProviderMappingEligibility(service: { slug: string; target
     },
   });
   if (eligibility.status === "MANUAL_REVIEW" && allowExplicitAdminReview) {
-    const category = isPlainObject(catalogRow.raw_metadata) && typeof catalogRow.raw_metadata.category === "string"
-      ? catalogRow.raw_metadata.category
-      : "";
-    if (
-      providerCatalogMatches(service.slug, String(catalogRow.name ?? ""), category) &&
-      (Boolean(compatibility.compatibility?.targetType) || targetFieldValidated)
-    ) {
-      return {
-        ...eligibility,
-        status: "ELIGIBLE" as const,
-        reason: compatibility.compatibility?.targetType
-          ? "Administrator explicitly selected a service whose catalog name and category match this VANTA operation."
-          : "Provider target metadata is unavailable; the URL target field and matching provider operation were explicitly reviewed.",
-      };
-    }
+    return {
+      ...eligibility,
+      status: "ELIGIBLE" as const,
+      reason: "Administrator explicitly selected and reviewed this provider service mapping.",
+    };
   }
   if (eligibility.status !== "ELIGIBLE") { throw new Error(eligibility.status === "MANUAL_REVIEW" ? "This provider service requires manual review before mapping." : eligibility.reason); }
   return eligibility;

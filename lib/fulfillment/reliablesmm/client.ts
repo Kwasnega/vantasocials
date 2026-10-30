@@ -28,10 +28,26 @@ function requestIntervalMs() {
   return value;
 }
 
+async function acquireProviderSlot(minIntervalMs: number, maxWaitMs = 8000): Promise<boolean> {
+  const start = Date.now();
+  const admin = createSupabaseAdminClient();
+  while (Date.now() - start < maxWaitMs) {
+    const gate = await admin.rpc("acquire_provider_request_slot", {
+      p_operation_key: "reliablesmm:api",
+      p_owner_token: crypto.randomUUID(),
+      p_min_interval_ms: minIntervalMs,
+    });
+    if (!gate.error && gate.data === true) return true;
+    if (gate.error) return false;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return false;
+}
+
 async function request<T>(action: string, params: Record<string, string | number> = {}, gateAcquired = false): Promise<T> {
   if (!gateAcquired) {
-    const gate = await createSupabaseAdminClient().rpc("acquire_provider_request_slot", { p_operation_key: "reliablesmm:api", p_owner_token: crypto.randomUUID(), p_min_interval_ms: requestIntervalMs() });
-    if (gate.error || gate.data !== true) throw new ReliableSMMError("ReliableSMM request rate limit unavailable or active.", 429, "PROVIDER_RATE_LIMITED");
+    const acquired = await acquireProviderSlot(requestIntervalMs());
+    if (!acquired) throw new ReliableSMMError("ReliableSMM request rate limit unavailable or active.", 429, "PROVIDER_RATE_LIMITED");
   }
   const body = new URLSearchParams({ key: apiKey(), action, ...Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])) });
   let response: Response;
@@ -47,8 +63,8 @@ async function request<T>(action: string, params: Record<string, string | number
 
 export class ReliableSMMReadOnlyClient {
   async acquireRequestGate() {
-    const gate = await createSupabaseAdminClient().rpc("acquire_provider_request_slot", { p_operation_key: "reliablesmm:api", p_owner_token: crypto.randomUUID(), p_min_interval_ms: requestIntervalMs() });
-    if (gate.error || gate.data !== true) throw new ReliableSMMError("ReliableSMM request rate limit unavailable or active.", 429, "PROVIDER_RATE_LIMITED");
+    const acquired = await acquireProviderSlot(requestIntervalMs());
+    if (!acquired) throw new ReliableSMMError("ReliableSMM request rate limit unavailable or active.", 429, "PROVIDER_RATE_LIMITED");
   }
 
   async getServices() { return request<ReliableSMMService[]>("services"); }

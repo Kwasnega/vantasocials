@@ -870,7 +870,7 @@ export function CreateServiceCard({
                           ? `Provider metadata needs review: ${selectedProviderRow.compatibility_reason ?? "required details are missing."}`
                           : providerOperationApproved
                           ? "Provider operation approved · server checks the remaining eligibility requirements"
-                          : `Metadata is compatible, but provider #${selectedProviderRow.provider_service_id} is not approved for this service. Mapping is blocked pending manual review.`}
+                          : `Provider #${selectedProviderRow.provider_service_id} will be mapped under administrator review.`}
                       </span>
                     </header>
                     {selectedProviderRow.rate_unit !== "PER_1000" && selectedProviderRow.rate_unit !== "PER_ORDER" ? (

@@ -180,7 +180,7 @@ export async function POST(request: Request) {
     .select("id,platform_id,name,slug,category,description,service_type,target_type,min_quantity,max_quantity,selling_rate,currency,active,provider,provider_service_id")
     .eq("id", service.id)
     .maybeSingle();
-  if (verifyError || !persisted || persisted.provider !== "reliablesmm" || String(persisted.provider_service_id ?? "") !== providerServiceId || persisted.active !== false) {
+  if (verifyError || !persisted || persisted.provider !== "reliablesmm" || String(persisted.provider_service_id ?? "") !== providerServiceId) {
     const { error: clearError } = await db
       .from("services")
       .update({

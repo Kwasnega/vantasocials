@@ -10,7 +10,10 @@ export function assessProviderEligibility(input: { serviceSlug: string; targetCo
     return { status: "BLOCKED", reason: input.platformCompatibilityState === "PLATFORM_MISMATCH" ? "Provider platform does not match the VANTA platform." : "Provider platform metadata is incomplete." };
   }
   if (!input.targetContract) {
-    return { status: "BLOCKED", reason: "No supported VANTA target contract." };
+    // If specific contract isn't found, fallback to generic rather than blocking the admin
+    input.targetContract = input.expectedTargetType === "url" || input.expectedTargetType === "post_url" || input.expectedTargetType === "video_url"
+      ? "GENERIC_URL"
+      : "GENERIC_PROFILE";
   }
   if (!/^\d+$/.test(provider.provider_service_id) || !provider.name.trim()) {
     return { status: "BLOCKED", reason: "Provider service identity is incomplete." };

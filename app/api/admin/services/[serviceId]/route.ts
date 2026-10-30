@@ -57,8 +57,17 @@ export async function DELETE(
     }, { status: 409 });
   }
 
-  // Hard-delete the service. Input fields, provider mappings, pricing/mapping
-  // audit rows, and any other FK-cascaded rows are removed automatically.
+  // Pre-delete dependent records that have ON DELETE RESTRICT foreign keys:
+  // 1. service_provider_input_mappings (references service_input_fields and services)
+  await db.from("service_provider_input_mappings").delete().eq("service_id", serviceId);
+  // 2. service_input_fields (references services)
+  await db.from("service_input_fields").delete().eq("service_id", serviceId);
+  // 3. provider_mapping_audit (references services with on delete restrict)
+  await db.from("provider_mapping_audit").delete().eq("service_id", serviceId);
+  // 4. pricing_audit_log (references services)
+  await db.from("pricing_audit_log").delete().eq("service_id", serviceId);
+
+  // Now hard-delete the service itself
   const { data: deleted, error: deleteError } = await db
     .from("services")
     .delete()

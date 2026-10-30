@@ -249,3 +249,114 @@ export function getServiceMappingInsertPayload(mapping: ReturnType<typeof valida
     active: mapping.active,
   };
 }
+
+/**
+ * Returns the standard default input field and mapping configuration for a newly created service.
+ * Used for 1-click automatic provisioning so the admin does not need to visit the inputs page.
+ */
+export function getDefaultServiceFieldAndMapping(options: {
+  targetType: string;
+  platformSlug?: string;
+  providerServiceId?: string;
+}) {
+  const { targetType, platformSlug, providerServiceId } = options;
+  const inputType = (VANTA_INPUT_TYPES as readonly string[]).includes(targetType) ? targetType : "url";
+  
+  const examples: Record<string, Partial<Record<string, string>>> = {
+    instagram: {
+      url: "https://www.instagram.com/username/",
+      post_url: "https://www.instagram.com/p/POST_ID/",
+      video_url: "https://www.instagram.com/reel/REEL_ID/",
+    },
+    tiktok: {
+      url: "https://www.tiktok.com/@username",
+      post_url: "https://www.tiktok.com/@username/video/VIDEO_ID",
+      video_url: "https://www.tiktok.com/@username/video/VIDEO_ID",
+    },
+    youtube: {
+      url: "https://www.youtube.com/@CHANNEL_HANDLE",
+      channel: "https://www.youtube.com/@CHANNEL_HANDLE",
+      video_url: "https://www.youtube.com/watch?v=VIDEO_ID",
+    },
+    facebook: {
+      url: "https://www.facebook.com/username",
+      page: "https://www.facebook.com/page_name",
+      post_url: "https://www.facebook.com/username/posts/POST_ID",
+    },
+    x: {
+      url: "https://x.com/username",
+      post_url: "https://x.com/username/status/POST_ID",
+    },
+    telegram: {
+      url: "https://t.me/channel_name",
+      channel: "https://t.me/channel_name",
+      post_url: "https://t.me/channel_name/POST_ID",
+    },
+  };
+
+  const platformName = platformSlug ? platformSlug.charAt(0).toUpperCase() + platformSlug.slice(1) : "Target";
+  const targetExample = examples[platformSlug ?? ""]?.[inputType] || "https://...";
+
+  let key = "target_url";
+  let label = `${platformName} URL`;
+  let placeholder = targetExample;
+  let helpText = "Enter the target URL.";
+
+  if (inputType === "post_url") {
+    key = "post_url";
+    label = `${platformName} Post URL`;
+    helpText = `Paste the URL of the ${platformName} post.`;
+  } else if (inputType === "video_url") {
+    key = "video_url";
+    label = `${platformName} Video URL`;
+    helpText = `Paste the URL of the ${platformName} video.`;
+  } else if (inputType === "channel") {
+    key = "channel_url";
+    label = `${platformName} Channel URL`;
+    helpText = `Paste the URL of the ${platformName} channel.`;
+  } else if (inputType === "page") {
+    key = "page_url";
+    label = `${platformName} Page URL`;
+    helpText = `Paste the URL of the ${platformName} page.`;
+  } else if (inputType === "username") {
+    key = "username";
+    label = `${platformName} Username`;
+    placeholder = "@username";
+    helpText = "Enter the account username.";
+  } else if (inputType === "comments") {
+    key = "comments";
+    label = "Comments";
+    placeholder = "Enter one comment per line";
+    helpText = "Enter one comment per line.";
+  }
+
+  const fieldDraft = {
+    key,
+    label,
+    inputType,
+    required: true,
+    displayOrder: 1,
+    placeholder,
+    helpText,
+    validationConfig: { maxLength: 2048 },
+    schemaVersion: 1,
+    active: true,
+  };
+
+  const mappingDraft = providerServiceId
+    ? {
+        provider: "reliablesmm",
+        providerServiceId,
+        providerParameterKey: "link",
+        transformId: "normalize_url",
+        transformVersion: 1,
+        providerRequired: true,
+        omitWhenBlank: false,
+        schemaVersion: 1,
+        active: true,
+      }
+    : null;
+
+  return { fieldDraft, mappingDraft };
+}
+

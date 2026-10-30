@@ -11,6 +11,13 @@ import {
 } from "../../../../lib/admin/provider-compatibility";
 import { assessProviderEligibility } from "../../../../lib/targets/eligibility";
 import { getTargetContractForService } from "../../../../lib/targets/contracts";
+import {
+  getDefaultServiceFieldAndMapping,
+  getServiceFieldInsertPayload,
+  getServiceMappingInsertPayload,
+  normalizeFieldDraft,
+  normalizeMappingDraft,
+} from "../../../../lib/admin/service-input-config";
 
 export async function POST(request: Request) {
   const { user, admin } = await requireAdmin();
@@ -194,10 +201,56 @@ export async function POST(request: Request) {
     }, { status: 500 });
   }
 
+  // 1-Click Auto-Provisioning: create standard input field and provider parameter mapping
+  // so the service is immediately ready to take orders without manually visiting the inputs page.
+  let autoProvisioned = false;
+  try {
+    const { fieldDraft, mappingDraft } = getDefaultServiceFieldAndMapping({
+      targetType: persisted.target_type,
+      platformSlug: platform.slug,
+      providerServiceId,
+    });
+
+    const normalizedField = normalizeFieldDraft(fieldDraft);
+    const fieldInsertPayload = getServiceFieldInsertPayload(normalizedField, persisted.id);
+    const { data: createdField, error: fieldErr } = await db
+      .from("service_input_fields")
+      .insert(fieldInsertPayload)
+      .select("id,key,label,input_type")
+      .single();
+
+    if (!fieldErr && createdField && mappingDraft) {
+      const normalizedMapping = normalizeMappingDraft(
+        {
+          ...mappingDraft,
+          serviceId: persisted.id,
+          service_input_field_id: createdField.id,
+        },
+        createdField,
+        persisted.target_type
+      );
+      const mappingInsertPayload = getServiceMappingInsertPayload(
+        normalizedMapping,
+        persisted.id,
+        createdField.id
+      );
+      const { error: mapErr } = await db
+        .from("service_provider_input_mappings")
+        .insert(mappingInsertPayload);
+
+      if (!mapErr) {
+        autoProvisioned = true;
+      }
+    }
+  } catch (provErr) {
+    console.warn("Auto-provisioning input fields skipped or failed:", provErr);
+  }
+
   try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
   return NextResponse.json({
     service: persisted,
     mapping: mappingResult,
+    autoProvisioned,
     sellingPricePer1000: input.sellingPricePer1000,
     sellingRateUnit: "GHS_PER_UNIT",
   }, { status: 201 });

@@ -109,7 +109,7 @@ export function CreateServiceCard({
   const [selectedPlatformId, setSelectedPlatformId] = useState<string>(defaultPlatformId || "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [createdInfo, setCreatedInfo] = useState<{ name: string; platformName: string; mapped: boolean } | null>(null);
+  const [createdInfo, setCreatedInfo] = useState<{ name: string; platformName: string; mapped: boolean; autoProvisioned?: boolean } | null>(null);
 
   // Optional provider catalog browsing
   const [browseCatalog, setBrowseCatalog] = useState(false);
@@ -359,6 +359,7 @@ export function CreateServiceCard({
         name: serviceName,
         platformName: currentPlatform?.name || "Platform",
         mapped,
+        autoProvisioned: Boolean(body.autoProvisioned),
       });
 
       // Clear fields
@@ -466,11 +467,18 @@ export function CreateServiceCard({
               <div style={{ padding: "36px 30px", textAlign: "center" }}>
                 <div style={{ fontSize: "40px", marginBottom: "12px", color: "#78dfb4" }}>✓</div>
                 <h3 style={{ margin: "0 0 8px", color: "#fff" }}>Service Created!</h3>
-                <p style={{ color: "#a99bb2", margin: "0 0 24px" }}>
-                  <strong>{createdInfo.name}</strong> has been created and added to the{" "}
-                  <strong>{createdInfo.platformName}</strong> card.
-                  {createdInfo.mapped ? " The provider mapping was saved and verified; the service remains inactive." : ""}
-                  {!createdInfo.mapped ? " The service was created without a provider mapping and can be mapped later." : ""}
+                <p style={{ color: "#a99bb2", margin: "0 0 24px", lineHeight: 1.6 }}>
+                  <strong>{createdInfo.name}</strong> has been created under{" "}
+                  <strong>{createdInfo.platformName}</strong>!
+                  {createdInfo.autoProvisioned ? (
+                    <span style={{ display: "block", marginTop: "8px", color: "#86f415" }}>
+                      ⚡ <strong>Auto-Configured:</strong> Customer input fields &amp; provider API mappings were generated automatically! Ready to take orders.
+                    </span>
+                  ) : createdInfo.mapped ? (
+                    " The provider mapping was saved and verified."
+                  ) : (
+                    " The service was created without a provider mapping and can be mapped later."
+                  )}
                 </p>
                 <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
                   <button

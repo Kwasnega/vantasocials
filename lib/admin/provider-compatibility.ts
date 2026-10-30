@@ -153,6 +153,27 @@ export function matchesApprovedProviderOperation(serviceSlug: string, providerSe
     "facebook-page-followers": [{ providerServiceId: "7229", servicePhrase: "facebook followers", categoryPhrase: "facebook followers" }],
     "facebook-post-likes": [{ providerServiceId: "7099", servicePhrase: "facebook post likes", categoryPhrase: "facebook post likes" }],
     "facebook-video-views": [{ providerServiceId: "7603", servicePhrase: "facebook views", categoryPhrase: "facebook views" }],
+    "instagram-comments": [
+      { providerServiceId: "7855", servicePhrase: "instagram comments", categoryPhrase: "instagram services" },
+      { providerServiceId: "7856", servicePhrase: "instagram comments", categoryPhrase: "instagram services" },
+      { providerServiceId: "7843", servicePhrase: "instagram random comments", categoryPhrase: "instagram services" },
+      { providerServiceId: "7916", servicePhrase: "instagram custom comments", categoryPhrase: "instagram comments" },
+      { providerServiceId: "7917", servicePhrase: "instagram random comments", categoryPhrase: "instagram comments" },
+      { providerServiceId: "7918", servicePhrase: "instagram emoji comments", categoryPhrase: "instagram comments" },
+      { providerServiceId: "2113", servicePhrase: "instagram positive emoji comments", categoryPhrase: "instagram comments" },
+    ],
+    "tiktok-comments": [
+      { providerServiceId: "7974", servicePhrase: "tiktok custom comments", categoryPhrase: "tiktok comments" },
+      { providerServiceId: "7975", servicePhrase: "tiktok custom comments", categoryPhrase: "tiktok comments" },
+      { providerServiceId: "7976", servicePhrase: "tiktok random comments", categoryPhrase: "tiktok comments" },
+      { providerServiceId: "7980", servicePhrase: "tiktok custom comments", categoryPhrase: "tiktok comments" },
+      { providerServiceId: "7981", servicePhrase: "tiktok random", categoryPhrase: "tiktok comments" },
+      { providerServiceId: "7982", servicePhrase: "tiktok comments", categoryPhrase: "tiktok comments" },
+    ],
+    "youtube-comments": [
+      { providerServiceId: "7969", servicePhrase: "youtube custom comments", categoryPhrase: "youtube comments" },
+      { providerServiceId: "7970", servicePhrase: "youtube custom comments", categoryPhrase: "youtube comments" },
+    ],
   };
   const operation = Object.entries(approvedOperations).find(([slug]) =>
     serviceSlug === slug || serviceSlug.startsWith(`${slug}-`)

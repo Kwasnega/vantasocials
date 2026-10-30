@@ -2,10 +2,13 @@ export type TargetContract =
   | "INSTAGRAM_PROFILE"
   | "INSTAGRAM_CONTENT"
   | "INSTAGRAM_REEL"
+  | "INSTAGRAM_COMMENT"
   | "TIKTOK_PROFILE"
   | "TIKTOK_VIDEO"
+  | "TIKTOK_COMMENT"
   | "YOUTUBE_CHANNEL"
   | "YOUTUBE_VIDEO"
+  | "YOUTUBE_COMMENT"
   | "FACEBOOK_PAGE"
   | "FACEBOOK_POST"
   | "FACEBOOK_VIDEO";
@@ -24,11 +27,14 @@ const legacyTargetContracts: Record<string, TargetContract> = {
   "instagram-likes": "INSTAGRAM_CONTENT",
   "instagram-views": "INSTAGRAM_CONTENT",
   "instagram-saves": "INSTAGRAM_CONTENT",
+  "instagram-comments": "INSTAGRAM_COMMENT",
   "tiktok-followers": "TIKTOK_PROFILE",
   "tiktok-views": "TIKTOK_VIDEO",
   "tiktok-shares": "TIKTOK_VIDEO",
+  "tiktok-comments": "TIKTOK_COMMENT",
   "youtube-subscribers": "YOUTUBE_CHANNEL",
   "youtube-likes": "YOUTUBE_VIDEO",
+  "youtube-comments": "YOUTUBE_COMMENT",
   "facebook-page-followers": "FACEBOOK_PAGE",
   "facebook-post-likes": "FACEBOOK_POST",
   "facebook-video-views": "FACEBOOK_VIDEO",
@@ -50,6 +56,11 @@ const requirements: Record<TargetContract, Omit<TargetRequirements, "contract">>
     example: "https://www.instagram.com/reel/SHORTCODE",
     description: "Use a direct Instagram reel link.",
   },
+  INSTAGRAM_COMMENT: {
+    label: "Instagram post URL",
+    example: "https://www.instagram.com/p/SHORTCODE or https://www.instagram.com/reel/SHORTCODE",
+    description: "Use a direct Instagram post or reel link to receive comments on.",
+  },
   TIKTOK_PROFILE: {
     label: "TikTok profile URL",
     example: "https://www.tiktok.com/@creator",
@@ -60,6 +71,11 @@ const requirements: Record<TargetContract, Omit<TargetRequirements, "contract">>
     example: "https://www.tiktok.com/@creator/video/1234567890123456789",
     description: "Use a direct TikTok video link.",
   },
+  TIKTOK_COMMENT: {
+    label: "TikTok video URL",
+    example: "https://www.tiktok.com/@creator/video/1234567890123456789",
+    description: "Use a direct TikTok video link to receive comments on.",
+  },
   YOUTUBE_CHANNEL: {
     label: "YouTube channel URL",
     example: "https://www.youtube.com/@creator",
@@ -69,6 +85,11 @@ const requirements: Record<TargetContract, Omit<TargetRequirements, "contract">>
     label: "YouTube video URL",
     example: "https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID",
     description: "Use a YouTube watch, Shorts, or youtu.be video link.",
+  },
+  YOUTUBE_COMMENT: {
+    label: "YouTube video URL",
+    example: "https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID",
+    description: "Use a direct YouTube video link to receive comments on.",
   },
   FACEBOOK_PAGE: {
     label: "Facebook page URL",
@@ -96,19 +117,24 @@ export function getTargetContractForService(input: {
 }): TargetContract | null {
   const platform = String(input.platformSlug ?? "").trim().toLowerCase();
   const targetType = String(input.targetType ?? "").trim();
+  const slug = String(input.slug ?? "").trim().toLowerCase();
+
+  // Comments services use post URL as the target for the post to comment on
+  const isCommentSlug = slug.endsWith("-comments") || /comments/.test(slug);
 
   if (platform === "instagram") {
     if (targetType === "username") return "INSTAGRAM_PROFILE";
-    if (targetType === "url" || targetType === "post_url") return "INSTAGRAM_CONTENT";
+    if (targetType === "url" || targetType === "post_url") return isCommentSlug ? "INSTAGRAM_COMMENT" : "INSTAGRAM_CONTENT";
     if (targetType === "video_url") return "INSTAGRAM_REEL";
   }
   if (platform === "tiktok") {
     if (targetType === "username") return "TIKTOK_PROFILE";
-    if (targetType === "video_url") return "TIKTOK_VIDEO";
+    if (targetType === "url" || targetType === "post_url") return isCommentSlug ? "TIKTOK_COMMENT" : null;
+    if (targetType === "video_url") return isCommentSlug ? "TIKTOK_COMMENT" : "TIKTOK_VIDEO";
   }
   if (platform === "youtube") {
     if (targetType === "channel") return "YOUTUBE_CHANNEL";
-    if (targetType === "video_url") return "YOUTUBE_VIDEO";
+    if (targetType === "url" || targetType === "post_url" || targetType === "video_url") return isCommentSlug ? "YOUTUBE_COMMENT" : "YOUTUBE_VIDEO";
   }
   if (platform === "facebook") {
     if (targetType === "page") return "FACEBOOK_PAGE";
@@ -178,10 +204,13 @@ function validateContract(contract: TargetContract, value: string, normalize: bo
     INSTAGRAM_PROFILE: ["instagram.com", "www.instagram.com"],
     INSTAGRAM_CONTENT: ["instagram.com", "www.instagram.com"],
     INSTAGRAM_REEL: ["instagram.com", "www.instagram.com"],
+    INSTAGRAM_COMMENT: ["instagram.com", "www.instagram.com"],
     TIKTOK_PROFILE: ["tiktok.com", "www.tiktok.com"],
     TIKTOK_VIDEO: ["tiktok.com", "www.tiktok.com"],
+    TIKTOK_COMMENT: ["tiktok.com", "www.tiktok.com"],
     YOUTUBE_CHANNEL: ["youtube.com", "www.youtube.com"],
     YOUTUBE_VIDEO: ["youtube.com", "www.youtube.com", "youtu.be"],
+    YOUTUBE_COMMENT: ["youtube.com", "www.youtube.com", "youtu.be"],
     FACEBOOK_PAGE: ["facebook.com", "www.facebook.com", "m.facebook.com"],
     FACEBOOK_POST: ["facebook.com", "www.facebook.com", "m.facebook.com"],
     FACEBOOK_VIDEO: ["facebook.com", "www.facebook.com", "m.facebook.com"],
@@ -203,16 +232,37 @@ function validateContract(contract: TargetContract, value: string, normalize: bo
     case "INSTAGRAM_REEL":
       matches = /^\/(?:reel|reels)\/[A-Za-z0-9_-]+\/?$/.test(path);
       break;
+    case "INSTAGRAM_COMMENT":
+      // Comments are posted on a specific post or reel — same URL pattern as INSTAGRAM_CONTENT
+      matches = /^\/(?:p|reel|reels)\/[A-Za-z0-9_-]+\/?$/.test(path);
+      break;
     case "TIKTOK_PROFILE":
       matches = /^\/@[A-Za-z0-9._-]{1,24}\/?$/.test(path);
       break;
     case "TIKTOK_VIDEO":
       matches = /^\/@[A-Za-z0-9._-]{1,24}\/video\/[0-9]{5,30}\/?$/.test(path);
       break;
+    case "TIKTOK_COMMENT":
+      // Comments are posted on a specific video — same URL pattern as TIKTOK_VIDEO
+      matches = /^\/@[A-Za-z0-9._-]{1,24}\/video\/[0-9]{5,30}\/?$/.test(path);
+      break;
     case "YOUTUBE_CHANNEL":
       matches = /^\/(?:channel\/[A-Za-z0-9_-]+|c\/[A-Za-z0-9._-]+|user\/[A-Za-z0-9._-]+|@[A-Za-z0-9._-]+)\/?$/.test(path);
       break;
     case "YOUTUBE_VIDEO": {
+      const shortHost = parsed.hostname === "youtu.be";
+      const idPattern = /^[A-Za-z0-9_-]{11}$/;
+      if (shortHost) {
+        matches = /^\/[A-Za-z0-9_-]{11}\/?$/.test(path);
+      } else {
+        const watchIds = parsed.searchParams.getAll("v");
+        matches = (/^\/watch\/?$/.test(path) && watchIds.length === 1 && idPattern.test(watchIds[0]))
+          || validPath(path, /^\/(?:shorts|embed)\/[A-Za-z0-9_-]{11}\/?$/);
+      }
+      break;
+    }
+    case "YOUTUBE_COMMENT": {
+      // Comments are posted on a specific video — same URL pattern as YOUTUBE_VIDEO
       const shortHost = parsed.hostname === "youtu.be";
       const idPattern = /^[A-Za-z0-9_-]{11}$/;
       if (shortHost) {

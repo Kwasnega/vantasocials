@@ -32,7 +32,7 @@ assert.equal(providerCatalogMatches("facebook-post-likes", "Facebook Video Views
 assert.equal(candidate(7099, "Facebook Post Likes", "facebook-post-likes").eligibility.status, "ELIGIBLE");
 assert.equal(candidate(5911, "Instagram Likes", "instagram-likes").eligibility.status, "ELIGIBLE");
 assert.equal(candidate(5661, "TikTok Video Views", "tiktok-views").eligibility.status, "ELIGIBLE");
-assert.equal(candidate(7856, "Instagram Custom Comments", "instagram-comments", { raw_metadata: { description: "Custom Comments" } }).eligibility.status, "BLOCKED");
+assert.equal(candidate(7856, "Instagram Custom Comments", "instagram-comments", { raw_metadata: { description: "Custom Comments" } }).eligibility.status, "MANUAL_REVIEW");
 assert.equal(candidate(7099, "Facebook Post Likes", "facebook-page-likes").eligibility.status, "BLOCKED");
 assert.equal(candidate(7486, "Instagram Video Views", "instagram-views").eligibility.status, "ELIGIBLE");
 assert.equal(candidate(7972, "Instagram Followers", "instagram-followers").eligibility.status, "MANUAL_REVIEW");

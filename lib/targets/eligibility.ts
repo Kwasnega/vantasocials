@@ -43,7 +43,6 @@ export function assessProviderEligibility(input: { serviceSlug: string; targetCo
     !/^\d+(\.\d+)?$/.test(String(provider.provider_rate)) ||
     !["PER_1000", "PER_ORDER"].includes(provider.rate_unit)
   ) return { status: "BLOCKED", reason: "Provider accounting metadata is unsupported." };
-  if (/custom comments|emoji comments|reaction|random comments|ai comments|auto/i.test(`${provider.name} ${JSON.stringify(provider.raw_metadata ?? {})}`)) return { status: "BLOCKED", reason: "Provider service requires unsupported special semantics." };
   if (![input.vantaMin, input.vantaMax, provider.min_quantity, provider.max_quantity].every(Number.isSafeInteger) || input.vantaMin <= 0 || input.vantaMax < input.vantaMin || provider.min_quantity <= 0 || provider.max_quantity < provider.min_quantity) {
     return { status: "BLOCKED", reason: "VANTA or provider quantity bounds are invalid." };
   }

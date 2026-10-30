@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "../../../../lib/auth/require-user";
+import { createSupabaseAdminClient } from "../../../../lib/supabase/server";
 import { formatOrderInputValue } from "../../../../lib/orders/display-input-values";
 import { buildOrderTimeline, formatOrderTimelineStatus } from "../../../../lib/orders/timeline";
 import OrderStatusRefresh from "../../../../components/orders/OrderStatusRefresh";
@@ -63,6 +64,8 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
   const paid = order.payment_status === "PAID";
   const service = order.services as { name?: string; platforms?: { name?: string } | null } | null;
 
+  const admin = createSupabaseAdminClient();
+
   const [
     { data: payments, error: paymentsError },
     { data: walletTransactions, error: walletTransactionsError },
@@ -81,17 +84,17 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
       .eq("order_id", order.id)
       .order("created_at", { ascending: true })
       .limit(50),
-    db.from("provider_orders")
-      .select("id,attempt_number,attempt_status,request_started_at,response_received_at,created_at")
+    admin.from("provider_orders")
+      .select("id,attempt_number,attempt_status,request_started_at,response_received_at,start_count,remains,status,created_at")
       .eq("order_id", order.id)
       .order("created_at", { ascending: true })
       .limit(50),
-    db.from("provider_order_events")
+    admin.from("provider_order_events")
       .select("id,provider_order_id,event_type,provider_status,metadata,created_at")
       .eq("order_id", order.id)
       .order("created_at", { ascending: false })
       .limit(100),
-    db.from("customer_provider_order_status")
+    admin.from("customer_provider_order_status")
       .select("status,start_count,remains,created_at,updated_at")
       .eq("order_id", order.id)
       .order("updated_at", { ascending: false })
@@ -108,7 +111,7 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
   const providerAttemptIds = (providerAttempts ?? []).map((attempt) => attempt.id);
   let attemptProviderEvents: typeof orderProviderEvents = [];
   if (providerAttemptIds.length > 0) {
-    const { data, error: attemptProviderEventsError } = await db.from("provider_order_events")
+    const { data, error: attemptProviderEventsError } = await admin.from("provider_order_events")
       .select("id,provider_order_id,event_type,provider_status,metadata,created_at")
       .in("provider_order_id", providerAttemptIds)
       .order("created_at", { ascending: false })
@@ -134,8 +137,13 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
   const fulfillmentLabel = formatOrderTimelineStatus(order.fulfillment_status);
 
   // Safe Progress calculations
-  const startCount = typeof customerStatus?.start_count === "number" ? customerStatus.start_count : null;
-  const remains = typeof customerStatus?.remains === "number" ? customerStatus.remains : null;
+  const latestAttempt = (providerAttempts ?? [])[(providerAttempts ?? []).length - 1];
+  const startCount = typeof customerStatus?.start_count === "number"
+    ? customerStatus.start_count
+    : typeof latestAttempt?.start_count === "number" ? latestAttempt.start_count : null;
+  const remains = typeof customerStatus?.remains === "number"
+    ? customerStatus.remains
+    : typeof latestAttempt?.remains === "number" ? latestAttempt.remains : null;
   let progressPercent: number | null = null;
   let deliveredCount: number | null = null;
 

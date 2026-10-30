@@ -33,10 +33,19 @@ export function assessProviderEligibility(input: { serviceSlug: string; targetCo
   }
   const providerTargetMetadataUnavailable = !input.providerTargetType;
   const compatibleUrlTargetTypes = new Set([input.expectedTargetType, input.providerTargetType]);
+  const isUrlCompatible = (
+    compatibleUrlTargetTypes.size === 1 ||
+    (compatibleUrlTargetTypes.has("url") && compatibleUrlTargetTypes.has("post_url")) ||
+    (compatibleUrlTargetTypes.has("url") && compatibleUrlTargetTypes.has("video_url")) ||
+    (compatibleUrlTargetTypes.has("post_url") && compatibleUrlTargetTypes.has("video_url")) ||
+    (compatibleUrlTargetTypes.has("username") && compatibleUrlTargetTypes.has("url")) ||
+    (compatibleUrlTargetTypes.has("channel") && (compatibleUrlTargetTypes.has("url") || compatibleUrlTargetTypes.has("username"))) ||
+    (compatibleUrlTargetTypes.has("page") && (compatibleUrlTargetTypes.has("url") || compatibleUrlTargetTypes.has("username")))
+  );
   if (
     input.providerTargetType &&
     input.providerTargetType !== input.expectedTargetType &&
-    !(compatibleUrlTargetTypes.size === 2 && compatibleUrlTargetTypes.has("url") && compatibleUrlTargetTypes.has("post_url"))
+    !isUrlCompatible
   ) {
     return { status: "BLOCKED", reason: `Provider target type '${input.providerTargetType}' is incompatible with VANTA target type '${input.expectedTargetType}'.` };
   }

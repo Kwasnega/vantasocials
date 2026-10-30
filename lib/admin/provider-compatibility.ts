@@ -42,6 +42,16 @@ function inferProviderTargetType(platform: string, name: string, category: strin
   ) {
     return "post_url";
   }
+  if (platform === "tiktok") {
+    if (/\b(?:followers?|fans?|follow)\b/.test(operation)) return "username";
+    if (/\b(?:views?|likes?|shares?|saves?|comments?|video)\b/.test(operation)) return "url";
+    return "url";
+  }
+  if (platform === "youtube") {
+    if (/\b(?:subscribers?|subs?|channel)\b/.test(operation)) return "channel";
+    if (/\b(?:views?|likes?|comments?|shares?|watch|video|shorts?)\b/.test(operation)) return "video_url";
+    return "video_url";
+  }
   if (platform === "facebook") {
     if (/\bvideo\b/.test(operation) && /\b(?:views?|likes?|comments?)\b/.test(operation)) return "video_url";
     if (/\bpost\b/.test(operation) && /\b(?:likes?|comments?|shares?|reactions?)\b/.test(operation)) return "post_url";

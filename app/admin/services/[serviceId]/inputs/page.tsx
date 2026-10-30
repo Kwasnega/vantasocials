@@ -47,7 +47,8 @@ export default async function ServiceInputConfigurationPage({ params }: { params
   // 2. Also load candidates matching the platform (or its aliases like x/twitter) so admin can select or re-map.
   let catalog: unknown[] = [];
   const mappedProviderServiceId = (service as { provider_service_id?: string | null }).provider_service_id;
-  const platform = (service as { platforms?: { name?: string; slug?: string } | null }).platforms;
+  const rawPlatform = (service as { platforms?: { name?: string; slug?: string } | Array<{ name?: string; slug?: string }> | null }).platforms;
+  const platform = Array.isArray(rawPlatform) ? rawPlatform[0] ?? null : rawPlatform;
   const platformSlug = String(platform?.slug ?? "").toLowerCase();
   const platformName = String(platform?.name ?? "").toLowerCase();
 

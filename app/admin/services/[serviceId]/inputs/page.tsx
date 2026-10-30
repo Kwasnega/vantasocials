@@ -34,7 +34,7 @@ export default async function ServiceInputConfigurationPage({ params }: { params
       .order("display_order", { ascending: true })
       .order("created_at", { ascending: true }),
     db.from("service_provider_input_mappings")
-      .select("id,service_id,provider,provider_service_id,provider_parameter_key,transform_id,transform_version,provider_required,omit_when_blank,active,schema_version,vanta_input_field_key,created_at,updated_at")
+      .select("id,service_id,service_input_field_id,provider,provider_service_id,provider_parameter_key,transform_id,transform_version,provider_required,omit_when_blank,schema_version,active,created_at,updated_at")
       .eq("service_id", serviceId)
       .order("created_at", { ascending: false }),
   ]);
@@ -42,18 +42,45 @@ export default async function ServiceInputConfigurationPage({ params }: { params
   if (fieldsError) return <><AdminQueryError message="Input fields could not be loaded." /><Link href="/admin/services">Back to services</Link></>;
   if (mappingsError) return <><AdminQueryError message="Provider input mappings could not be loaded." /><Link href="/admin/services">Back to services</Link></>;
 
-  // Only load catalog rows for the specific provider service already mapped to this service.
-  // If unmapped, the UI will fetch catalog candidates on-demand via the API.
+  // Load relevant provider catalog candidates:
+  // 1. If service is already mapped to a provider service, fetch that exact service.
+  // 2. Also load candidates matching the platform (capped at 100) so admin can select or re-map.
   let catalog: unknown[] = [];
   const mappedProviderServiceId = (service as { provider_service_id?: string | null }).provider_service_id;
-  if (mappedProviderServiceId) {
-    const { data: catalogRow } = await db
-      .from("provider_catalog_services")
-      .select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata")
-      .eq("provider", "reliablesmm")
-      .eq("provider_service_id", mappedProviderServiceId)
-      .maybeSingle();
-    if (catalogRow) catalog = [catalogRow];
+  const platform = (service as { platforms?: { name?: string; slug?: string } | null }).platforms;
+  const platformSearch = platform?.name || platform?.slug || "";
+
+  try {
+    if (mappedProviderServiceId) {
+      const { data: catalogRow } = await db
+        .from("provider_catalog_services")
+        .select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata")
+        .eq("provider", "reliablesmm")
+        .eq("provider_service_id", mappedProviderServiceId)
+        .maybeSingle();
+      if (catalogRow) catalog.push(catalogRow);
+    }
+
+    if (platformSearch) {
+      let candidateQuery = db
+        .from("provider_catalog_services")
+        .select("provider,provider_service_id,name,provider_status,provider_rate,provider_currency,rate_unit,min_quantity,max_quantity,raw_metadata")
+        .eq("provider", "reliablesmm")
+        .eq("provider_status", "ACTIVE")
+        .ilike("name", `%${platformSearch}%`)
+        .limit(100);
+
+      if (mappedProviderServiceId) {
+        candidateQuery = candidateQuery.neq("provider_service_id", mappedProviderServiceId);
+      }
+
+      const { data: candidates } = await candidateQuery;
+      if (candidates && candidates.length) {
+        catalog.push(...candidates);
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to load catalog candidates for inputs page:", err);
   }
 
   return (

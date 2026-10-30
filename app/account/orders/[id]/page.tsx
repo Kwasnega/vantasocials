@@ -300,18 +300,30 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
           </span>
         </div>
         <ol>
-          {timeline.map((event, index) => (
-            <li key={event.id}>
-              <span className={`order-detail-timeline-dot ${event.kind}${index === 0 ? " is-complete" : ""}`} aria-hidden="true">
-                {index === 0 ? "✓" : "•"}
-              </span>
-              <div>
-                <strong>{event.label}</strong>
-                {event.detail && <p>{event.detail}</p>}
-                <time dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time>
-              </div>
-            </li>
-          ))}
+          {timeline.map((event, index) => {
+            const isLast = index === timeline.length - 1;
+            const isTerminalSuccess = order.fulfillment_status === "COMPLETED";
+            const isTerminalFailed = ["FAILED", "CANCELLED"].includes(order.fulfillment_status);
+            const isComplete = !isLast || isTerminalSuccess;
+            const isCurrent = isLast && !isTerminalSuccess && !isTerminalFailed;
+            const isFailed = isLast && isTerminalFailed;
+
+            return (
+              <li key={event.id} className={isCurrent ? "is-current-step" : ""}>
+                <span
+                  className={`order-detail-timeline-dot ${event.kind}${isComplete ? " is-complete" : ""}${isCurrent ? " is-current" : ""}${isFailed ? " is-failed" : ""}`}
+                  aria-hidden="true"
+                >
+                  {isFailed ? "!" : isComplete ? "✓" : "•"}
+                </span>
+                <div>
+                  <strong>{event.label}</strong>
+                  {event.detail && <p>{event.detail}</p>}
+                  <time dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time>
+                </div>
+              </li>
+            );
+          })}
         </ol>
         {timeline.length === 1 && (
           <p className="order-detail-timeline-empty">

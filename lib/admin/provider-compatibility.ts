@@ -151,7 +151,16 @@ export function matchesApprovedProviderOperation(serviceSlug: string, providerSe
     "youtube-subscribers": [{ providerServiceId: "7458", servicePhrase: "youtube subscribers", categoryPhrase: "youtube subscribers" }],
     "youtube-likes": [{ providerServiceId: "4210", servicePhrase: "youtube likes", categoryPhrase: "youtube likes" }],
     "facebook-page-followers": [{ providerServiceId: "7229", servicePhrase: "facebook followers", categoryPhrase: "facebook followers" }],
-    "facebook-post-likes": [{ providerServiceId: "7099", servicePhrase: "facebook post likes", categoryPhrase: "facebook post likes" }],
+    "facebook-post-likes": [
+      { providerServiceId: "7099", servicePhrase: "facebook post likes", categoryPhrase: "facebook post likes" },
+      { providerServiceId: "2813", servicePhrase: "facebook post reactions", categoryPhrase: "facebook post reaction" },
+      { providerServiceId: "8008", servicePhrase: "facebook post reactions", categoryPhrase: "facebook post reaction" },
+      { providerServiceId: "8009", servicePhrase: "facebook post reactions", categoryPhrase: "facebook post reaction" },
+      { providerServiceId: "8010", servicePhrase: "facebook post reactions", categoryPhrase: "facebook post reaction" },
+      { providerServiceId: "8002", servicePhrase: "facebook post reactions", categoryPhrase: "facebook post reaction" },
+      { providerServiceId: "2127", servicePhrase: "facebook post reaction", categoryPhrase: "facebook post reactions" },
+      { providerServiceId: "5611", servicePhrase: "facebook post reaction", categoryPhrase: "facebook post reactions" },
+    ],
     "facebook-video-views": [{ providerServiceId: "7603", servicePhrase: "facebook views", categoryPhrase: "facebook views" }],
     "instagram-comments": [
       { providerServiceId: "7855", servicePhrase: "instagram comments", categoryPhrase: "instagram services" },

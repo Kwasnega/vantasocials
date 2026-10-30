@@ -134,7 +134,8 @@ export function normalizeMappingDraft(raw: unknown, field: ServiceInputField | (
   if (providerParameterKey === "link") {
     const urlTargetCompatible =
       inputType === expectedTargetType ||
-      ((inputType === "url" || inputType === "post_url") && (expectedTargetType === "url" || expectedTargetType === "post_url"));
+      ((inputType === "url" || inputType === "post_url") && (expectedTargetType === "url" || expectedTargetType === "post_url")) ||
+      (expectedTargetType === "username" && (inputType === "url" || inputType === "username"));
     if (!urlTargetCompatible || transform.id !== "normalize_url") {
       throw new Error("ReliableSMM 'link' requires a URL field compatible with the VANTA service target and the normalize_url transform.");
     }

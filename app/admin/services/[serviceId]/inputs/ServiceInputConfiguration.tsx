@@ -215,7 +215,8 @@ export function ServiceInputConfiguration({
     (
       selectedField.input_type === service.target_type ||
       ((selectedField.input_type === "url" || selectedField.input_type === "post_url") &&
-        (service.target_type === "url" || service.target_type === "post_url"))
+        (service.target_type === "url" || service.target_type === "post_url")) ||
+      (service.target_type === "username" && (selectedField.input_type === "url" || selectedField.input_type === "username"))
     )
   );
   const mappingFormValid = Boolean(

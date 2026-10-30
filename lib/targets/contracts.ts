@@ -158,6 +158,8 @@ export function resolveTargetInputField<T extends { key: string; inputType?: str
 ): { field: T; error: null } | { field: null; error: string } {
   const compatibleTypes = targetType === "url" || targetType === "post_url"
     ? new Set(["url", "post_url"])
+    : targetType === "username"
+    ? new Set(["username", "url"])
     : new Set([targetType]);
   const matches = fields.filter((field) => compatibleTypes.has(String(field.inputType ?? field.input_type ?? "")));
   if (matches.length === 1) return { field: matches[0], error: null };

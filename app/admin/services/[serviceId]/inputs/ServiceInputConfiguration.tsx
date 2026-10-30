@@ -186,6 +186,26 @@ export function ServiceInputConfiguration({
       (key) => !fieldChoices.some((field) => field.key === key)
     ),
   };
+
+  // Helper to apply a preset template when selecting an input type or preset
+  function applyPreset(inputType: string, keyIndex = 0) {
+    const suggestions = getFieldSuggestions(inputType, platform?.slug);
+    const key = suggestions.keys[keyIndex] || suggestions.keys[0] || "";
+    const label = suggestions.labels[keyIndex] || suggestions.labels[0] || "";
+    const placeholder = suggestions.placeholders[keyIndex] || suggestions.placeholders[0] || "";
+    const helpText = suggestions.helpTexts[keyIndex] || suggestions.helpTexts[0] || "";
+    const valDef = validationDefaults[inputType as keyof typeof validationDefaults] || { maxLength: 2048 };
+
+    setFieldForm((c) => ({
+      ...c,
+      inputType,
+      key,
+      label,
+      placeholder,
+      helpText,
+      validationConfig: { ...valDef },
+    }));
+  }
   const fieldOptionListId = `input-field-options-${service.id}`;
   const displayOrderOptions = Array.from({ length: Math.max(fieldChoices.length + 2, 5) }, (_, index) => index);
   const selectedField = fieldChoices.find((field) => field.id === mappingForm.serviceInputFieldId) ?? null;
@@ -343,6 +363,28 @@ export function ServiceInputConfiguration({
           <p style={{ margin: "0 0 20px", color: "#8f8099", fontSize: "13px" }}>Define what the customer fills out on the order form.</p>
           <p style={{ margin: "-8px 0 16px", color: "#8f8099", fontSize: "12px" }}>Use the field suggestions for common values, or enter a custom value. Server-side validation remains authoritative.</p>
 
+          {/* Quick preset selector to populate fields with 1 click */}
+          <div style={{ marginBottom: "16px", padding: "12px", background: "rgba(216,131,255,.08)", borderRadius: "10px", border: "1px solid rgba(216,131,255,.2)" }}>
+            <label style={{ ...lbl, color: "#d883ff", marginBottom: "6px" }}>
+              ⚡ Quick Template (Autofill everything)
+              <select
+                style={{ ...sel, background: "#170529", color: "#fff", borderColor: "#d883ff", fontWeight: 600 }}
+                value={fieldForm.inputType}
+                onChange={(e) => applyPreset(e.target.value)}
+              >
+                <option value="post_url">Post / Video URL (e.g. Instagram Post, TikTok Video, Reel)</option>
+                <option value="url">Direct / Profile URL (e.g. Account Link, Website)</option>
+                <option value="username">Username / Handle (e.g. @username)</option>
+                <option value="channel">Channel URL (e.g. YouTube, Telegram Channel)</option>
+                <option value="page">Page URL (e.g. Facebook Page)</option>
+                <option value="comments">Custom Comments (1 per line)</option>
+              </select>
+            </label>
+            <p style={{ margin: "4px 0 0", fontSize: "11px", color: "#b7a9c0" }}>
+              Selecting a template instantly auto-fills Key, Label, Placeholder, Help text, and Limits below!
+            </p>
+          </div>
+
           <form onSubmit={submitField} style={{ display: "grid", gap: "14px" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <label style={lbl}>
@@ -444,7 +486,17 @@ export function ServiceInputConfiguration({
               <label style={lbl}>
                 ReliableSMM service
                 <select style={sel} value={mappingForm.providerServiceId}
-                  onChange={(e) => setMappingForm((c) => ({ ...c, providerServiceId: e.target.value, providerParameterKey: "" }))}>
+                  onChange={(e) => {
+                    const provId = e.target.value;
+                    const catRow = catalogOptions.find((r) => r.provider_service_id === provId);
+                    // Default to 'link' parameter if available
+                    const defaultParam = catRow?.parameterKeys.includes("link") ? "link" : (catRow?.parameterKeys[0] || "");
+                    setMappingForm((c) => ({
+                      ...c,
+                      providerServiceId: provId,
+                      providerParameterKey: defaultParam,
+                    }));
+                  }}>
                   <option value="">— Select a provider service —</option>
                   {catalogOptions.map((r) => (
                     <option key={r.provider_service_id} value={r.provider_service_id}>{r.name} (#{r.provider_service_id})</option>

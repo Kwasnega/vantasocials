@@ -359,179 +359,16 @@ function validateContract(contract: TargetContract, value: string, normalize: bo
     return fail(requirementError(contract));
   }
 
-  const parsed = parseHttpsUrl(value);
-  if (!parsed) return fail(`Enter a valid ${requirements[contract].label.toLowerCase()} using HTTPS, without credentials, a custom port, or control characters.`);
-  const allowedHosts: Record<TargetContract, string[]> = {
-    INSTAGRAM_PROFILE: ["instagram.com", "www.instagram.com"],
-    INSTAGRAM_CONTENT: ["instagram.com", "www.instagram.com"],
-    INSTAGRAM_REEL: ["instagram.com", "www.instagram.com"],
-    INSTAGRAM_COMMENT: ["instagram.com", "www.instagram.com"],
-    TIKTOK_PROFILE: ["tiktok.com", "www.tiktok.com"],
-    TIKTOK_VIDEO: ["tiktok.com", "www.tiktok.com"],
-    TIKTOK_COMMENT: ["tiktok.com", "www.tiktok.com"],
-    YOUTUBE_CHANNEL: ["youtube.com", "www.youtube.com"],
-    YOUTUBE_VIDEO: ["youtube.com", "www.youtube.com", "youtu.be"],
-    YOUTUBE_COMMENT: ["youtube.com", "www.youtube.com", "youtu.be"],
-    FACEBOOK_PAGE: ["facebook.com", "www.facebook.com", "m.facebook.com"],
-    FACEBOOK_POST: ["facebook.com", "www.facebook.com", "m.facebook.com"],
-    FACEBOOK_VIDEO: ["facebook.com", "www.facebook.com", "m.facebook.com"],
-    X_PROFILE: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
-    X_POST: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
-    LINKEDIN_PROFILE: ["linkedin.com", "www.linkedin.com"],
-    LINKEDIN_POST: ["linkedin.com", "www.linkedin.com"],
-    TELEGRAM_CHANNEL: ["t.me", "telegram.me"],
-    TELEGRAM_POST: ["t.me", "telegram.me"],
-    PINTEREST_PROFILE: ["pinterest.com", "www.pinterest.com", "pinterest.co.uk", "www.pinterest.co.uk"],
-    PINTEREST_PIN: ["pinterest.com", "www.pinterest.com", "pinterest.co.uk", "www.pinterest.co.uk"],
-    SPOTIFY_PROFILE: ["open.spotify.com"],
-    SPOTIFY_TRACK: ["open.spotify.com"],
-    TWITCH_CHANNEL: ["twitch.tv", "www.twitch.tv"],
-    REDDIT_PROFILE: ["reddit.com", "www.reddit.com"],
-    REDDIT_POST: ["reddit.com", "www.reddit.com"],
-    SNAPCHAT_PROFILE: ["snapchat.com", "www.snapchat.com"],
-    THREADS_PROFILE: ["threads.net", "www.threads.net"],
-    THREADS_POST: ["threads.net", "www.threads.net"],
-    // Generic contracts accept any host (validated below as a loose HTTPS URL)
-    GENERIC_PROFILE: [],
-    GENERIC_URL: [],
-  };
-  // For generic contracts, any HTTPS URL with a non-empty path is valid.
-  // The allowedHosts list is empty, so we skip the host check and do a loose validation.
-  if (contract === "GENERIC_PROFILE" || contract === "GENERIC_URL") {
-    return parsed.pathname.length > 1
-      ? { valid: true, target: normalizeIfConfigured(value, normalize) }
-      : fail(requirementError(contract));
+  const trimmed = value.trim();
+  // Auto-prepend https:// if the user typed just the domain or path (e.g. "instagram.com/user" or "tiktok.com/@creator")
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  const parsed = parseHttpsUrl(withProtocol);
+  if (!parsed) {
+    return fail("Please enter a valid link or handle (e.g. https://instagram.com/username).");
   }
 
-  // For extended platform contracts, check the allowed hosts first.
-  const hostList = allowedHosts[contract];
-  if (!hostList.includes(parsed.hostname)) {
-    return fail(requirementError(contract));
-  }
-
-  const path = parsed.pathname;
-  let matches = false;
-  switch (contract) {
-    case "INSTAGRAM_PROFILE":
-      matches = /^\/[A-Za-z0-9._]{1,30}\/?$/.test(path)
-        && !new Set(["p", "reel", "reels", "stories", "accounts", "explore", "direct"]).has(path.split("/")[1].toLowerCase());
-      break;
-    case "INSTAGRAM_CONTENT":
-      matches = /^\/(?:p|reel|reels)\/[A-Za-z0-9_-]+\/?$/.test(path);
-      break;
-    case "INSTAGRAM_REEL":
-      matches = /^\/(?:reel|reels)\/[A-Za-z0-9_-]+\/?$/.test(path);
-      break;
-    case "INSTAGRAM_COMMENT":
-      // Comments are posted on a specific post or reel — same URL pattern as INSTAGRAM_CONTENT
-      matches = /^\/(?:p|reel|reels)\/[A-Za-z0-9_-]+\/?$/.test(path);
-      break;
-    case "TIKTOK_PROFILE":
-      matches = /^\/@[A-Za-z0-9._-]{1,24}\/?$/.test(path);
-      break;
-    case "TIKTOK_VIDEO":
-      matches = /^\/@[A-Za-z0-9._-]{1,24}\/video\/[0-9]{5,30}\/?$/.test(path);
-      break;
-    case "TIKTOK_COMMENT":
-      // Comments are posted on a specific video — same URL pattern as TIKTOK_VIDEO
-      matches = /^\/@[A-Za-z0-9._-]{1,24}\/video\/[0-9]{5,30}\/?$/.test(path);
-      break;
-    case "YOUTUBE_CHANNEL":
-      matches = /^\/(?:channel\/[A-Za-z0-9_-]+|c\/[A-Za-z0-9._-]+|user\/[A-Za-z0-9._-]+|@[A-Za-z0-9._-]+)\/?$/.test(path);
-      break;
-    case "YOUTUBE_VIDEO": {
-      const shortHost = parsed.hostname === "youtu.be";
-      const idPattern = /^[A-Za-z0-9_-]{11}$/;
-      if (shortHost) {
-        matches = /^\/[A-Za-z0-9_-]{11}\/?$/.test(path);
-      } else {
-        const watchIds = parsed.searchParams.getAll("v");
-        matches = (/^\/watch\/?$/.test(path) && watchIds.length === 1 && idPattern.test(watchIds[0]))
-          || validPath(path, /^\/(?:shorts|embed)\/[A-Za-z0-9_-]{11}\/?$/);
-      }
-      break;
-    }
-    case "YOUTUBE_COMMENT": {
-      // Comments are posted on a specific video — same URL pattern as YOUTUBE_VIDEO
-      const shortHost = parsed.hostname === "youtu.be";
-      const idPattern = /^[A-Za-z0-9_-]{11}$/;
-      if (shortHost) {
-        matches = /^\/[A-Za-z0-9_-]{11}\/?$/.test(path);
-      } else {
-        const watchIds = parsed.searchParams.getAll("v");
-        matches = (/^\/watch\/?$/.test(path) && watchIds.length === 1 && idPattern.test(watchIds[0]))
-          || validPath(path, /^\/(?:shorts|embed)\/[A-Za-z0-9_-]{11}\/?$/);
-      }
-      break;
-    }
-    case "FACEBOOK_PAGE":
-      matches = /^\/[A-Za-z0-9._-]+\/?$/.test(path)
-        && !new Set(["watch", "groups", "events", "login", "share", "reel", "videos"]).has(path.split("/")[1].toLowerCase());
-      break;
-    case "FACEBOOK_POST":
-      matches = /^\/[A-Za-z0-9._-]+\/posts\/[A-Za-z0-9_-]+\/?$/.test(path)
-        || (/^\/permalink\.php$/.test(path) && Boolean(parsed.searchParams.get("story_fbid")) && Boolean(parsed.searchParams.get("id")));
-      break;
-    case "FACEBOOK_VIDEO":
-      matches = /^\/(?:[A-Za-z0-9._-]+\/)?videos\/[A-Za-z0-9_-]+\/?$/.test(path)
-        || /^\/(?:reel|reels)\/[A-Za-z0-9_-]+\/?$/.test(path);
-      break;
-    // ── Extended platform contracts (loose path validation) ──────────────
-    case "X_PROFILE":
-      matches = /^\/[A-Za-z0-9_]{1,50}\/?$/.test(path)
-        && !new Set(["i", "intent", "search", "explore", "settings", "home", "login"]).has(path.split("/")[1].toLowerCase());
-      break;
-    case "X_POST":
-      matches = /^\/[A-Za-z0-9_]{1,50}\/status\/[0-9]+\/?$/.test(path);
-      break;
-    case "LINKEDIN_PROFILE":
-      matches = /^\/(?:in|company|school)\/[A-Za-z0-9_%-]+\/?/.test(path);
-      break;
-    case "LINKEDIN_POST":
-      matches = /^\/(?:posts|feed\/update)\//.test(path) || /^\/in\/[A-Za-z0-9_%-]+\//.test(path);
-      break;
-    case "TELEGRAM_CHANNEL":
-      matches = /^\/[A-Za-z0-9_]{3,50}\/?$/.test(path);
-      break;
-    case "TELEGRAM_POST":
-      matches = /^\/[A-Za-z0-9_]{3,50}\/[0-9]+\/?$/.test(path);
-      break;
-    case "PINTEREST_PROFILE":
-      matches = /^\/[A-Za-z0-9_-]+\/?$/.test(path)
-        && !new Set(["pin", "search", "explore", "ideas"]).has(path.split("/")[1].toLowerCase());
-      break;
-    case "PINTEREST_PIN":
-      matches = /^\/pin\/[0-9]+\/?$/.test(path);
-      break;
-    case "SPOTIFY_PROFILE":
-      matches = /^\/(?:artist|user|show)\/[A-Za-z0-9]+\/?$/.test(path);
-      break;
-    case "SPOTIFY_TRACK":
-      matches = /^\/(?:track|episode|playlist|album)\/[A-Za-z0-9]+\/?$/.test(path);
-      break;
-    case "TWITCH_CHANNEL":
-      matches = /^\/[A-Za-z0-9_]{3,50}\/?$/.test(path)
-        && !new Set(["directory", "search", "subscriptions", "settings"]).has(path.split("/")[1].toLowerCase());
-      break;
-    case "REDDIT_PROFILE":
-      matches = /^\/user\/[A-Za-z0-9_-]+\/?$/.test(path);
-      break;
-    case "REDDIT_POST":
-      matches = /^\/r\/[A-Za-z0-9_]+\/comments\/[A-Za-z0-9_]+/.test(path);
-      break;
-    case "SNAPCHAT_PROFILE":
-      matches = /^\/(?:add\/)?[A-Za-z0-9._-]{3,50}\/?$/.test(path);
-      break;
-    case "THREADS_PROFILE":
-      matches = /^\/@[A-Za-z0-9._]{1,50}\/?$/.test(path);
-      break;
-    case "THREADS_POST":
-      matches = /^\/@[A-Za-z0-9._]{1,50}\/post\/[A-Za-z0-9_-]+\/?$/.test(path);
-      break;
-  }
-
-  if (!matches) return fail(requirementError(contract));
-  return { valid: true, target: normalizeIfConfigured(value, normalize) };
+  return { valid: true, target: normalizeIfConfigured(withProtocol, normalize) };
 }
 
 export function normalizeTargetForService(input: {
@@ -580,6 +417,40 @@ export function validateConfiguredOrderTarget(input: {
     targetType: input.targetType,
     value,
   });
+}
+
+const KNOWN_PLATFORM_HOSTS: Record<string, string[]> = {
+  instagram: ["instagram.com", "www.instagram.com"],
+  tiktok: ["tiktok.com", "www.tiktok.com"],
+  youtube: ["youtube.com", "www.youtube.com", "youtu.be"],
+  facebook: ["facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch"],
+  x: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
+  twitter: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
+  linkedin: ["linkedin.com", "www.linkedin.com"],
+  telegram: ["t.me", "telegram.me"],
+  pinterest: ["pinterest.com", "www.pinterest.com", "pinterest.co.uk", "www.pinterest.co.uk"],
+  spotify: ["open.spotify.com", "spotify.com"],
+  twitch: ["twitch.tv", "www.twitch.tv"],
+  reddit: ["reddit.com", "www.reddit.com"],
+  snapchat: ["snapchat.com", "www.snapchat.com"],
+  threads: ["threads.net", "www.threads.net"],
+};
+
+export function checkTargetHostMatch(platformSlug: string | undefined | null, targetUrl: string): { matches: boolean; expectedHosts: string[] } {
+  const normSlug = String(platformSlug ?? "").toLowerCase().trim();
+  const hosts = KNOWN_PLATFORM_HOSTS[normSlug];
+  if (!hosts || hosts.length === 0) return { matches: true, expectedHosts: [] };
+
+  const trimmed = targetUrl.trim();
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(withProtocol);
+    const hostname = url.hostname.toLowerCase();
+    const isMatch = hosts.some((h) => hostname === h || hostname.endsWith(`.${h}`));
+    return { matches: isMatch, expectedHosts: hosts };
+  } catch {
+    return { matches: false, expectedHosts: hosts };
+  }
 }
 
 export function effectiveQuantityBounds(vantaMin: number, vantaMax: number, providerMin: number, providerMax: number) {

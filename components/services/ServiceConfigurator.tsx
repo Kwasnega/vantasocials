@@ -9,6 +9,7 @@ import {
   getTargetRequirements,
   normalizeTargetForService,
   resolveTargetInputField,
+  checkTargetHostMatch,
 } from "../../lib/targets/contracts";
 import { calculateCustomerTotal, unitRateToAdminPricePer1000 } from "../../lib/pricing/customer-price";
 
@@ -20,6 +21,8 @@ function formatCustomerRate(unitRate: string) {
   const [whole, fraction = ""] = unitRateToAdminPricePer1000(unitRate).split(".");
   return `${whole}.${fraction.padEnd(2, "0")}`;
 }
+
+type LinkWarning = { message: string; onConfirm: () => void };
 
 export function ServiceConfigurator({ service, platform, platformSlug }: { service: CatalogService & { inputFields?: CustomerInputField[] }; platform?: string; platformSlug?: string }) {
   const router = useRouter();
@@ -42,6 +45,7 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [linkWarning, setLinkWarning] = useState<LinkWarning | null>(null);
   const orderIdempotencyKey = useRef<StoredOrderIntent | null>(null);
   const orderIdempotencyServiceId = useRef(service.id);
 
@@ -101,18 +105,10 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
     }
   }
 
-  async function submitLegacy() {
-    if (!legacyTargetValidation.valid) {
-      setError(legacyTargetValidation.reason);
-      return;
-    }
-    if (!quantityValid) {
-      setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`);
-      return;
-    }
+  async function doSubmitLegacy(targetValue: string) {
     setSubmitting(true); setError("");
     try {
-      const payload = { service_id: service.id, target_value: legacyTargetValidation.target, quantity };
+      const payload = { service_id: service.id, target_value: targetValue, quantity };
       const requestKey = await getOrderIdempotencyKey(payload);
       const response = await fetch("/api/orders", {
         method: "POST",
@@ -126,20 +122,81 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
       }
       if (!response.ok) {
         setError(response.status >= 500
-          ? "We couldn’t confirm the order. Retry safely to check this same submission."
+          ? "We couldn't confirm the order. Retry safely to check this same submission."
           : result.error || "Unable to create order.");
         setSubmitting(false);
         return;
       }
       if (typeof result.public_order_id !== "string" || !result.public_order_id.trim()) {
-        setError("We couldn’t confirm the order. Retry safely to check this same submission.");
+        setError("We couldn't confirm the order. Retry safely to check this same submission.");
         setSubmitting(false);
         return;
       }
       beginDifferentOrderIntent();
       router.push(`/checkout?order=${encodeURIComponent(result.public_order_id)}`);
     } catch {
-      setError("We couldn’t confirm the order. Retry safely to check this same submission.");
+      setError("We couldn't confirm the order. Retry safely to check this same submission.");
+      setSubmitting(false);
+    }
+  }
+
+  async function submitLegacy() {
+    if (!legacyTargetValidation.valid) {
+      setError(legacyTargetValidation.reason);
+      return;
+    }
+    if (!quantityValid) {
+      setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`);
+      return;
+    }
+    // Check if the URL belongs to the expected platform; if not, show a warning popup
+    const targetValue = legacyTargetValidation.target;
+    const hostCheck = checkTargetHostMatch(platformSlug, targetValue);
+    if (!hostCheck.matches) {
+      setLinkWarning({
+        message: `This link doesn't look like a ${platform ?? "this platform"} URL. Please double-check it's the correct link before continuing.`,
+        onConfirm: () => { setLinkWarning(null); void doSubmitLegacy(targetValue); },
+      });
+      return;
+    }
+    await doSubmitLegacy(targetValue);
+  }
+
+  async function doSubmitDynamic(resolvedFieldValues: Record<string, string>) {
+    setSubmitting(true); setError("");
+    try {
+      const payload = {
+        service_id: service.id,
+        quantity,
+        input_values: resolvedFieldValues,
+      };
+      const requestKey = await getOrderIdempotencyKey(payload);
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "content-type": "application/json", "Idempotency-Key": requestKey },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (response.status === 401) {
+        window.location.href = `/login?next=${encodeURIComponent(`/services/${service.slug}`)}`;
+        return;
+      }
+      if (!response.ok) {
+        setError(response.status >= 500
+          ? "We couldn't confirm the order. Retry safely to check this same submission."
+          : result.error || "Unable to create order.");
+        setSubmitting(false);
+        return;
+      }
+      if (typeof result.public_order_id !== "string" || !result.public_order_id.trim()) {
+        setError("We couldn't confirm the order. Retry safely to check this same submission.");
+        setSubmitting(false);
+        return;
+      }
+      beginDifferentOrderIntent();
+      router.push(`/checkout?order=${encodeURIComponent(result.public_order_id)}`);
+    } catch {
+      setError("We couldn't confirm the order. Retry safely to check this same submission.");
       setSubmitting(false);
     }
   }
@@ -173,43 +230,24 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
       return;
     }
 
-    setSubmitting(true); setError("");
-    try {
-      const payload = {
-        service_id: service.id,
-        quantity,
-        input_values: fieldValues,
-      };
-      const requestKey = await getOrderIdempotencyKey(payload);
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "content-type": "application/json", "Idempotency-Key": requestKey },
-        body: JSON.stringify(payload),
+    // Check if the URL belongs to the expected platform; if not, show a warning popup
+    const rawTargetValue = fieldValues[targetField.key] ?? "";
+    const hostCheck = checkTargetHostMatch(platformSlug, rawTargetValue);
+    if (!hostCheck.matches) {
+      setLinkWarning({
+        message: `This link doesn't look like a ${platform ?? "this platform"} URL. Please double-check it's the correct link before continuing.`,
+        onConfirm: () => { setLinkWarning(null); void doSubmitDynamic(fieldValues); },
       });
-      const result = await response.json();
-      if (response.status === 401) {
-        window.location.href = `/login?next=${encodeURIComponent(`/services/${service.slug}`)}`;
-        return;
-      }
-      if (!response.ok) {
-        setError(response.status >= 500
-          ? "We couldn’t confirm the order. Retry safely to check this same submission."
-          : result.error || "Unable to create order.");
-        setSubmitting(false);
-        return;
-      }
-      if (typeof result.public_order_id !== "string" || !result.public_order_id.trim()) {
-        setError("We couldn’t confirm the order. Retry safely to check this same submission.");
-        setSubmitting(false);
-        return;
-      }
-      beginDifferentOrderIntent();
-      router.push(`/checkout?order=${encodeURIComponent(result.public_order_id)}`);
-    } catch {
-      setError("We couldn’t confirm the order. Retry safely to check this same submission.");
-      setSubmitting(false);
+      return;
     }
+
+    await doSubmitDynamic(fieldValues);
   }
+
+  // Whether the submit button for legacy mode should be enabled.
+  // Since validateContract is now permissive (accepts any valid HTTPS URL), we only
+  // disable when the value is literally empty / unparseable — not for host mismatches.
+  const legacySubmitEnabled = !submitting && quantityValid && !!targetRequirements && legacyTargetValidation.valid;
 
   const renderDynamicFields = () => (
     <div className="configurator">
@@ -255,6 +293,32 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   );
 
   return <div className="order-builder">
+    {/* Platform mismatch warning dialog */}
+    {linkWarning && (
+      <div className="link-warning-overlay" role="dialog" aria-modal="true" aria-labelledby="link-warning-title">
+        <div className="link-warning-dialog">
+          <div className="link-warning-icon" aria-hidden="true">⚠️</div>
+          <h3 id="link-warning-title">Double-check your link</h3>
+          <p>{linkWarning.message}</p>
+          <div className="link-warning-actions">
+            <button
+              className="link-warning-back"
+              type="button"
+              onClick={() => setLinkWarning(null)}
+            >
+              Go back
+            </button>
+            <button
+              className="link-warning-confirm"
+              type="button"
+              onClick={linkWarning.onConfirm}
+            >
+              Continue anyway
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     <div className="order-builder-form">
       <div className="order-form-kicker">ORDER DETAILS</div>
       <h2>{service.name}</h2>
@@ -268,7 +332,7 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
         <div className="quantity-tools"><input className="quantity-range" type="range" min={service.min_quantity} max={service.max_quantity} step="1" value={quantityValid ? quantity : service.min_quantity} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value); setError(""); }} aria-label="Choose quantity with slider" /><select aria-label="Choose a common quantity" value="" onChange={(event) => { if (event.target.value) { beginDifferentOrderIntent(); setQuantityInput(event.target.value); setError(""); } }}><option value="">Quick choose</option><option value={String(service.min_quantity)}>Minimum ({service.min_quantity.toLocaleString()})</option><option value={String(Math.min(service.max_quantity, service.min_quantity * 2))}>Starter</option><option value={String(Math.min(service.max_quantity, 1000))}>1,000</option><option value={String(Math.min(service.max_quantity, 10000))}>10,000</option></select></div>
         <div className="config-summary"><span>Total</span><strong>{service.currency} {total}</strong></div>
         {error && <p className="order-field-error" role="alert">{error}</p>}
-        <button className="service-action-link" type="button" onClick={submitLegacy} disabled={submitting || !quantityValid || !targetRequirements || !legacyTargetValidation.valid}>{submitting ? "Creating order…" : "Continue to checkout"}</button>
+        <button className="service-action-link" type="button" onClick={submitLegacy} disabled={!legacySubmitEnabled}>{submitting ? "Creating order…" : "Continue to checkout"}</button>
       </div>}
     </div>
     <aside className="order-builder-summary">

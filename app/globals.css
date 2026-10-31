@@ -3323,3 +3323,102 @@ button, a, .button, .how-cta, .step-card, .catalog-card, .dashboard-card {
   .checkout-shell-payable .checkout-trust-footer { margin-top:auto; }
   .checkout-shell-payable .checkout-container { padding-bottom:0; }
 }
+
+
+/* Link Warning Dialog (Host Mismatch Confirmation) */
+.link-warning-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(11, 7, 16, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.link-warning-dialog {
+  max-width: 440px;
+  width: 100%;
+  padding: 28px 24px 22px;
+  border: 1px solid #5a3c6e;
+  border-radius: 20px;
+  background: linear-gradient(150deg, #241434, #160a22);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(216, 131, 255, 0.15);
+  text-align: center;
+  color: #fff;
+  animation: linkWarningFadeIn 0.18s ease-out;
+}
+
+@keyframes linkWarningFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.link-warning-icon {
+  font-size: 38px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.link-warning-dialog h3 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #f7f0fc;
+}
+
+.link-warning-dialog p {
+  margin: 0 0 24px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #c9b9d4;
+}
+
+.link-warning-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.link-warning-back {
+  flex: 1;
+  min-height: 46px;
+  padding: 10px 16px;
+  border: 1px solid #523762;
+  border-radius: 12px;
+  background: #251633;
+  color: #d1bfe0;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.link-warning-back:hover {
+  background: #331d46;
+  border-color: #6e4a83;
+  color: #fff;
+}
+
+.link-warning-confirm {
+  flex: 1;
+  min-height: 46px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #d883ff;
+  color: #170529;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(216, 131, 255, 0.28);
+  transition: all 0.15s ease;
+}
+
+.link-warning-confirm:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}

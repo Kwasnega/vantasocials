@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { LogoutButton } from "../../components/auth/LogoutButton";
 import { requireAdmin } from "../../lib/admin/auth";
 import { AdminSidebar } from "../../components/admin/AdminSidebar";
+import { ProviderBalanceBanner } from "../../components/admin/ProviderBalanceBanner";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user, admin } = await requireAdmin();
@@ -14,7 +15,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <p className="dashboard-kicker">VANTA ADMIN</p>
           <h1>Admin access required</h1>
           <p>
-            You’re signed in, but this account does not have admin permissions.
+            You're signed in, but this account does not have admin permissions.
             Ask an existing admin to enable access, or sign in with an admin account.
           </p>
           <div className="admin-access-actions">
@@ -25,5 +26,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </main>
     );
   }
-  return <main className="dashboard-shell"><AdminSidebar/><section className="dashboard-content">{children}</section></main>;
+  return (
+    <main className="dashboard-shell">
+      <AdminSidebar />
+      <section className="dashboard-content">
+        <ProviderBalanceBanner />
+        {children}
+      </section>
+    </main>
+  );
 }

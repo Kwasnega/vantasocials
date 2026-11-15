@@ -14,6 +14,7 @@ import { assertPayableOrderTotal, calculateCustomerTotal, normalizeInternalUnitR
 import { captureServerEvent } from "../../../lib/posthog/server";
 import { flushPostHogLogs, logPostHogInfo } from "../../../lib/posthog/logs";
 import { normalizeTargetServer as normalizeTarget } from "../../../lib/targets/normalize-server";
+import { getServiceBlockStatus } from "../../../lib/provider-balance/service-block";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const IDEMPOTENCY_CONSTRAINT = "orders_user_id_idempotency_key_key";
@@ -166,6 +167,16 @@ export async function POST(request: Request) {
     if (!platform || !platform.active) return NextResponse.json({ error: "Service is not available." }, { status: 409 });
     const servicePlatform = platform;
 
+    // Setting-guarded provider-balance block: reject new orders when balance is CRITICAL
+    // and reliablesmm_service_block_on_critical is ON. Never charge for orders we expect to fail.
+    const blockStatus = await getServiceBlockStatus({ provider: service.provider ?? "" });
+    if (blockStatus.blocked) {
+      return NextResponse.json(
+        { error: blockStatus.message ?? "This service is temporarily unavailable. Please try again later." },
+        { status: 503 }
+      );
+    }
+
     const isReliableSmm = service.provider === "reliablesmm" && Boolean(service.provider_service_id);
     const [providerCatalogResult, dynamicFieldsResult] = await Promise.all([
       isReliableSmm
@@ -309,6 +320,19 @@ export async function POST(request: Request) {
     const fingerprint = orderIntentFingerprint(hasDynamicFields
       ? { service_id: service.id, quantity, input_values: dynamicValidation!.validatedValues }
       : { service_id: service.id, quantity, target_value: normalizedTarget!.target });
+    // Optional preview snapshot passed from client (non-blocking, sanitize defensively)
+    let targetPreviewSnapshot: Record<string, unknown> | null = null;
+    if (input.target_preview && typeof input.target_preview === "object" && !Array.isArray(input.target_preview)) {
+      const rawPreview = input.target_preview as Record<string, unknown>;
+      targetPreviewSnapshot = {
+        title: typeof rawPreview.title === "string" ? rawPreview.title.slice(0, 140) : undefined,
+        authorName: typeof rawPreview.authorName === "string" ? rawPreview.authorName.slice(0, 140) : undefined,
+        thumbnailUrl: typeof rawPreview.thumbnailUrl === "string" ? rawPreview.thumbnailUrl.slice(0, 500) : undefined,
+        providerName: typeof rawPreview.providerName === "string" ? rawPreview.providerName.slice(0, 50) : undefined,
+        fetchedAt: typeof rawPreview.fetchedAt === "string" ? rawPreview.fetchedAt : new Date().toISOString(),
+      };
+    }
+
     const orderInsert = {
       user_id: user.id,
       service_id: service.id,
@@ -316,6 +340,7 @@ export async function POST(request: Request) {
       ...(hasDynamicFields ? { target_value: "dynamic-configured-order" } : { target_value: normalizedTarget!.target }),
       target_raw: rawTargetInput,
       target_confidence: targetConfidence,
+      target_preview: targetPreviewSnapshot,
       quantity,
       unit_price: unitPrice,
       subtotal,

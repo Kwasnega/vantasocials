@@ -6,6 +6,7 @@ import { LogoutButton } from "../auth/LogoutButton";
 const items: Array<[string, string, string]> = [
   ["/admin", "Overview", "⊞"],
   ["/admin/orders", "Orders", "◫"],
+  ["/admin/failures", "Failures", "⚠️"],
   ["/admin/customers", "Customers", "👥"],
   ["/admin/services", "Services", "⚡"],
   ["/admin/pricing", "Pricing", "₵"],
@@ -50,8 +51,10 @@ export function AdminSidebar() {
               key={href}
               title={collapsed ? label : undefined}
             >
-              <span className="sidebar-item-icon">{icon}</span>
-              <span className="sidebar-item-label">{label}</span>
+              <span className="sidebar-icon" aria-hidden="true">
+                {icon}
+              </span>
+              <span className="sidebar-label">{label}</span>
             </Link>
           );
         })}

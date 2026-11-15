@@ -9,6 +9,7 @@ import { AdminOrderRetryAction } from "../../../../components/admin/AdminOrderRe
 import { getRetryEligibility } from "../../../../lib/fulfillment/retry-eligibility";
 import { CopyableValue, AdminOrderActionsBar } from "../../../../components/admin/AdminOrderActionsBar";
 import { AdminOrderTimelineStepper, type PersistedTimelineEvent } from "../../../../components/admin/AdminOrderTimelineStepper";
+import { AdminTargetFixActions } from "../../../../components/admin/AdminTargetFixActions";
 
 export default async function AdminOrderDetail({ params }: { params: Promise<{ id: string }> }) {
   const { admin } = await requireAdmin();
@@ -19,7 +20,7 @@ export default async function AdminOrderDetail({ params }: { params: Promise<{ i
   // 1. Fetch order details with customer and service joins
   const { data: order, error: orderError } = await db
     .from("orders")
-    .select("id,public_order_id,user_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,status,payment_status,fulfillment_status,failure_reason,failure_detail,created_at,updated_at,input_schema_snapshot,input_values,profiles(id,email,full_name),services(name,slug,platforms(name))")
+    .select("id,public_order_id,user_id,target_type,target_value,target_raw,target_confidence,target_preview,target_fix_status,quantity,unit_price,subtotal,total,currency,status,payment_status,fulfillment_status,failure_reason,failure_detail,created_at,updated_at,input_schema_snapshot,input_values,profiles(id,email,full_name),services(name,slug,platforms(name,slug))")
     .eq("public_order_id", id)
     .maybeSingle();
 
@@ -111,6 +112,47 @@ export default async function AdminOrderDetail({ params }: { params: Promise<{ i
             <CopyableValue label="Target" value={order.target_value} />
           </div>
           <small>Type: {order.target_type}</small>
+          {order.target_raw && order.target_raw !== order.target_value && (
+            <div style={{ marginTop: "4px", fontSize: "11px", color: "var(--muted, #888)" }}>
+              Original: <code style={{ fontSize: "10px" }}>{order.target_raw}</code>
+            </div>
+          )}
+          {order.target_preview && typeof order.target_preview === "object" && (
+            <div style={{ marginTop: "8px", padding: "8px", background: "rgba(255,255,255,0.05)", borderRadius: "6px", display: "flex", gap: "8px", alignItems: "center" }}>
+              {(order.target_preview as { thumbnailUrl?: string }).thumbnailUrl && (
+                <img
+                  src={(order.target_preview as { thumbnailUrl: string }).thumbnailUrl}
+                  alt="Preview thumbnail"
+                  style={{ width: "48px", height: "36px", objectFit: "cover", borderRadius: "4px" }}
+                />
+              )}
+              <div style={{ minWidth: 0, flex: 1, fontSize: "11px" }}>
+                <strong style={{ display: "block", color: "var(--foreground, #fff)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {(order.target_preview as { title?: string }).title ||
+                    ((order.target_preview as { authorName?: string }).authorName
+                      ? `Video by ${(order.target_preview as { authorName?: string }).authorName}`
+                      : "Link Preview")}
+                </strong>
+                <span style={{ color: "var(--muted, #888)" }}>
+                  {(order.target_preview as { title?: string }).title
+                    ? (order.target_preview as { authorName?: string }).authorName || (order.target_preview as { providerName?: string }).providerName
+                    : (order.target_preview as { providerName?: string }).providerName}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Target Fix Actions for invalid_target failures */}
+          <AdminTargetFixActions
+            orderId={order.id}
+            publicOrderId={order.public_order_id}
+            currentTarget={order.target_value}
+            targetType={order.target_type}
+            platformSlug={(service?.platforms as { slug?: string } | null)?.slug || ""}
+            failureReason={order.failure_reason}
+            fulfillmentStatus={order.fulfillment_status}
+            targetFixStatus={order.target_fix_status}
+          />
         </article>
 
         <article className="dashboard-card">

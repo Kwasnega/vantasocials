@@ -187,7 +187,17 @@ const FAILURE_REASONS: OrderFailureReason[] = [
 export default async function AdminOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; payment?: string; fulfillment?: string; failure_reason?: string; cursor?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    payment?: string;
+    fulfillment?: string;
+    failure_reason?: string;
+    target_fix?: string;
+    service_id?: string;
+    platform_id?: string;
+    window?: string;
+    cursor?: string;
+  }>;
 }) {
   const { admin } = await requireAdmin();
   if (!admin) return null;
@@ -196,7 +206,21 @@ export default async function AdminOrdersPage({
   const limit = 25;
   const search = (params.q ?? "").trim();
   const activeFailureReason = params.failure_reason ?? "";
-  const isFiltered = Boolean(search || params.payment || params.fulfillment || activeFailureReason);
+  const activeTargetFix = params.target_fix ?? "";
+  const activeServiceId = params.service_id ?? "";
+  const activePlatformId = params.platform_id ?? "";
+  const activeWindow = params.window ?? "";
+
+  const isFiltered = Boolean(
+    search ||
+      params.payment ||
+      params.fulfillment ||
+      activeFailureReason ||
+      activeTargetFix ||
+      activeServiceId ||
+      activePlatformId ||
+      activeWindow
+  );
   const countStrategy = isFiltered ? "exact" : "planned";
 
   // Keyset/cursor pagination with strict server-side validation
@@ -223,12 +247,20 @@ export default async function AdminOrdersPage({
   let query = db
     .from("orders")
     .select(
-      "id,public_order_id,target_value,quantity,total,currency,payment_status,fulfillment_status,failure_reason,failure_detail,created_at,profiles(email),services(name,platforms(name))",
+      "id,public_order_id,target_value,quantity,total,currency,payment_status,fulfillment_status,failure_reason,failure_detail,target_fix_status,created_at,profiles(email),services(name,platforms(name))",
       { count: countStrategy },
     );
   if (params.payment) query = query.eq("payment_status", params.payment);
   if (params.fulfillment) query = query.eq("fulfillment_status", params.fulfillment);
   if (activeFailureReason) query = query.eq("failure_reason", activeFailureReason);
+  if (activeTargetFix) query = query.eq("target_fix_status", activeTargetFix);
+  if (activeServiceId) query = query.eq("service_id", activeServiceId);
+  if (activePlatformId) query = query.eq("services.platform_id", activePlatformId);
+  if (activeWindow) {
+    const hours = activeWindow === "24h" ? 24 : activeWindow === "30d" ? 720 : 168;
+    const windowStart = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+    query = query.gte("created_at", windowStart);
+  }
   if (search) {
     const escapedSearch = escapePostgrestSearchTerm(search);
     query = query.or(`public_order_id.ilike."%${escapedSearch}%",target_value.ilike."%${escapedSearch}%"`);
@@ -409,6 +441,16 @@ export default async function AdminOrdersPage({
                 })),
               ],
             },
+            {
+              name: "target_fix",
+              defaultValue: activeTargetFix,
+              options: [
+                { value: "", label: "All target fix states" },
+                { value: "AWAITING_CUSTOMER", label: "Awaiting customer fix" },
+                { value: "FIXED", label: "Target fixed" },
+                { value: "EXPIRED", label: "Fix link expired" },
+              ],
+            },
           ]}
         />
 
@@ -462,6 +504,44 @@ export default async function AdminOrdersPage({
                         </div>
                         {order.failure_reason && (
                           <FailureReasonBadge reason={order.failure_reason} />
+                        )}
+                        {order.target_fix_status === "AWAITING_CUSTOMER" && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              letterSpacing: "0.04em",
+                              padding: "2px 7px",
+                              borderRadius: "6px",
+                              background: "#3182ce22",
+                              color: "#63b3ed",
+                              border: "1px solid #3182ce44",
+                              marginTop: "2px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            ✉️ Awaiting Customer Fix
+                          </span>
+                        )}
+                        {order.target_fix_status === "FIXED" && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              letterSpacing: "0.04em",
+                              padding: "2px 7px",
+                              borderRadius: "6px",
+                              background: "#38a16922",
+                              color: "#68d391",
+                              border: "1px solid #38a16944",
+                              marginTop: "2px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            ✓ Target Fixed
+                          </span>
                         )}
                         {(() => {
                           const eligibility = getRetryEligibility({

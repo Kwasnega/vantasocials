@@ -11,6 +11,12 @@ export type CheckoutOrder = {
   platform_slug?: string;
   target_type: string;
   target_value: string;
+  target_preview?: {
+    title?: string;
+    authorName?: string;
+    thumbnailUrl?: string;
+    providerName?: string;
+  } | null;
   quantity: number;
   unit_price: string;
   subtotal: string;
@@ -37,7 +43,7 @@ export async function getCheckoutOrder(publicOrderId: string): Promise<CheckoutO
     .maybeSingle();
   const { data: order, error } = await admin
     .from("orders")
-    .select("public_order_id,target_type,target_value,quantity,unit_price,subtotal,total,currency,status,payment_status,fulfillment_status,created_at,user_id,input_values,services(name,slug,category,platforms(name,slug))")
+    .select("public_order_id,target_type,target_value,target_preview,quantity,unit_price,subtotal,total,currency,status,payment_status,fulfillment_status,created_at,user_id,input_values,services(name,slug,category,platforms(name,slug))")
     .eq("public_order_id", publicOrderId.trim())
     .eq("user_id", user.id)
     .maybeSingle();
@@ -61,6 +67,7 @@ export async function getCheckoutOrder(publicOrderId: string): Promise<CheckoutO
     platform_slug: platform.slug,
     target_type: order.target_type,
     target_value: order.target_value,
+    target_preview: order.target_preview,
     quantity: order.quantity,
     unit_price: order.unit_price,
     subtotal: order.subtotal,

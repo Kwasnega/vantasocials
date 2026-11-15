@@ -2,7 +2,14 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import type { CatalogService } from "../../lib/catalog/services";
+import type { LinkPreviewData, LinkPreviewErrorCode } from "../../lib/link-preview/types";
+
+const LinkPreviewCard = dynamic(
+  () => import("./LinkPreviewCard").then((mod) => mod.LinkPreviewCard),
+  { ssr: false }
+);
 import type { CustomerInputField } from "../../lib/customer/service-contract";
 import { getFieldControlType, validateCustomerInputValue } from "../../lib/customer/service-contract";
 import { normalizeTarget } from "../../lib/targets/normalize";
@@ -49,9 +56,92 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   const [linkWarning, setLinkWarning] = useState<LinkWarning | null>(null);
   const orderIdempotencyKey = useRef<StoredOrderIntent | null>(null);
   const orderIdempotencyServiceId = useRef(service.id);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewData, setPreviewData] = useState<LinkPreviewData | null>(null);
+  const [previewErrorCode, setPreviewErrorCode] = useState<LinkPreviewErrorCode | null>(null);
+  const [previewConfirmed, setPreviewConfirmed] = useState(false);
+
+  // Helper to safely track PostHog events without PII
+  const trackPreviewEvent = (eventName: string, props: Record<string, unknown> = {}) => {
+    if (typeof window !== "undefined") {
+      try {
+        import("posthog-js").then(({ default: posthog }) => {
+          if (process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN && process.env.NEXT_PUBLIC_POSTHOG_HOST) {
+            posthog.capture(eventName, {
+              platform: platformSlug,
+              target_type: service.target_type,
+              ...props,
+            });
+          }
+        });
+      } catch {
+        // Safe no-op
+      }
+    }
+  };
+
+  // Fetch link preview asynchronously after canonicalization
+  async function fetchPreview(cleanUrl: string) {
+    if (!cleanUrl.trim() || !platformSlug) {
+      setPreviewData(null);
+      setPreviewErrorCode(null);
+      return;
+    }
+    const cleanPlatform = platformSlug.toLowerCase();
+    // Only attempt preview for platforms with adapters
+    if (
+      cleanPlatform !== "youtube" &&
+      cleanPlatform !== "x" &&
+      cleanPlatform !== "twitter" &&
+      cleanPlatform !== "x-twitter" &&
+      cleanPlatform !== "tiktok"
+    ) {
+      setPreviewData(null);
+      setPreviewErrorCode(null);
+      return;
+    }
+
+    setPreviewLoading(true);
+    setPreviewErrorCode(null);
+    setPreviewConfirmed(false);
+
+    try {
+      const res = await fetch("/api/link-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: platformSlug,
+          url: cleanUrl,
+          targetType: service.target_type,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok && data.data) {
+        setPreviewData(data.data);
+        setPreviewErrorCode(null);
+        trackPreviewEvent("preview_shown", { provider: data.data.providerName });
+      } else {
+        setPreviewData(null);
+        const code = (data.code as LinkPreviewErrorCode) || "UNAVAILABLE";
+        setPreviewErrorCode(code);
+        trackPreviewEvent("preview_error", { code });
+      }
+    } catch {
+      setPreviewData(null);
+      setPreviewErrorCode("UNAVAILABLE");
+      trackPreviewEvent("preview_error", { code: "UNAVAILABLE" });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
   // Real-time client-side canonicalization on paste or blur
   async function cleanAndValidateTarget(rawInput: string, fieldKey?: string) {
-    if (!rawInput.trim()) return;
+    if (!rawInput.trim()) {
+      setPreviewData(null);
+      setPreviewErrorCode(null);
+      return;
+    }
     try {
       const res = await normalizeTarget({
         platform: platformSlug ?? "",
@@ -66,12 +156,15 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
         } else {
           setTarget(res.canonical);
         }
+        void fetchPreview(res.canonical);
       } else {
         if (fieldKey) {
           setFieldErrors((prev) => ({ ...prev, [fieldKey]: res.message }));
         } else {
           setError(res.message);
         }
+        setPreviewData(null);
+        setPreviewErrorCode(null);
       }
     } catch {
       // ignore
@@ -138,7 +231,14 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   async function doSubmitLegacy(targetValue: string) {
     setSubmitting(true); setError("");
     try {
-      const payload = { service_id: service.id, target_value: targetValue, quantity };
+      const payload: Record<string, unknown> = {
+        service_id: service.id,
+        target_value: targetValue,
+        quantity,
+      };
+      if (previewData) {
+        payload.target_preview = previewData;
+      }
       const requestKey = await getOrderIdempotencyKey(payload);
       const response = await fetch("/api/orders", {
         method: "POST",
@@ -195,11 +295,14 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   async function doSubmitDynamic(resolvedFieldValues: Record<string, string>) {
     setSubmitting(true); setError("");
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         service_id: service.id,
         quantity,
         input_values: resolvedFieldValues,
       };
+      if (previewData) {
+        payload.target_preview = previewData;
+      }
       const requestKey = await getOrderIdempotencyKey(payload);
       const response = await fetch("/api/orders", {
         method: "POST",
@@ -318,6 +421,25 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
           <label>{isTarget && targetRequirements ? targetRequirements.label : field.label}{field.required ? " *" : ""}{controlType === "textarea" ? <textarea {...commonProps} rows={4} /> : <input {...commonProps} type={isTarget || controlType === "url" ? "url" : "text"} placeholder={isTarget && targetRequirements ? targetRequirements.example : field.placeholder} />}</label>
           {isTarget && targetRequirements ? <small>{targetRequirements.description} Example: {targetRequirements.example}</small> : field.helpText && <small>{field.helpText}</small>}
           {(fieldError || (isTarget && currentValue.trim().length > 0 && targetError)) && <p role="alert">{fieldError || targetError}</p>}
+          {isTarget && (
+            <LinkPreviewCard
+              loading={previewLoading}
+              preview={previewData}
+              errorCode={previewErrorCode}
+              confirmed={previewConfirmed}
+              onConfirm={() => {
+                setPreviewConfirmed(true);
+                trackPreviewEvent("preview_confirmed");
+              }}
+              onChangeLink={() => {
+                setFieldValues((prev) => ({ ...prev, [field.key]: "" }));
+                setPreviewData(null);
+                setPreviewErrorCode(null);
+                setPreviewConfirmed(false);
+                trackPreviewEvent("preview_change_link");
+              }}
+            />
+          )}
         </div>;
       })}
       <label>Quantity<input type="text" inputMode="numeric" value={quantityInput} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value.replace(/[^0-9]/g, "")); setError(""); }} onBlur={() => { if (quantityInput && !quantityValid) setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`); }} aria-invalid={Boolean(quantityInput) && !quantityValid} /></label>
@@ -363,6 +485,23 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
         <label>{targetRequirements?.label ?? "Target URL"}<input type="url" required value={target} onChange={(event) => { beginDifferentOrderIntent(); setTarget(event.target.value); }} onBlur={() => { if (target.trim().length > 0) void cleanAndValidateTarget(target); }} placeholder={targetRequirements?.example ?? "https://..."} aria-invalid={target.trim().length > 0 && !legacyTargetValidation.valid} /></label>
         {targetRequirements ? <small>{targetRequirements.description} Example: {targetRequirements.example}</small> : <p role="alert">This service has an unsupported target configuration. Please contact support.</p>}
         {target.trim().length > 0 && !legacyTargetValidation.valid && <p className="order-field-error" role="alert">{legacyTargetValidation.reason}</p>}
+        <LinkPreviewCard
+          loading={previewLoading}
+          preview={previewData}
+          errorCode={previewErrorCode}
+          confirmed={previewConfirmed}
+          onConfirm={() => {
+            setPreviewConfirmed(true);
+            trackPreviewEvent("preview_confirmed");
+          }}
+          onChangeLink={() => {
+            setTarget("");
+            setPreviewData(null);
+            setPreviewErrorCode(null);
+            setPreviewConfirmed(false);
+            trackPreviewEvent("preview_change_link");
+          }}
+        />
         <label>Quantity<input type="text" inputMode="numeric" value={quantityInput} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value.replace(/[^0-9]/g, "")); setError(""); }} onBlur={() => { if (quantityInput && !quantityValid) setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`); }} aria-invalid={Boolean(quantityInput) && !quantityValid} /></label>
         <div className="quantity-tools"><input className="quantity-range" type="range" min={service.min_quantity} max={service.max_quantity} step="1" value={quantityValid ? quantity : service.min_quantity} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value); setError(""); }} aria-label="Choose quantity with slider" /><select aria-label="Choose a common quantity" value="" onChange={(event) => { if (event.target.value) { beginDifferentOrderIntent(); setQuantityInput(event.target.value); setError(""); } }}><option value="">Quick choose</option><option value={String(service.min_quantity)}>Minimum ({service.min_quantity.toLocaleString()})</option><option value={String(Math.min(service.max_quantity, service.min_quantity * 2))}>Starter</option><option value={String(Math.min(service.max_quantity, 1000))}>1,000</option><option value={String(Math.min(service.max_quantity, 10000))}>10,000</option></select></div>
         <div className="config-summary"><span>Total</span><strong>{service.currency} {total}</strong></div>
@@ -376,6 +515,29 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
         <span className="platform-logo">{platform?.slice(0, 1) ?? "V"}</span>
         <div><strong>{service.name}</strong><small>{platform ?? "VANTA"} · {service.category}</small></div>
       </div>
+      {previewData && (
+        <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-white/10 bg-white/5 p-2 text-xs">
+          {previewData.thumbnailUrl ? (
+            <img
+              src={previewData.thumbnailUrl}
+              alt={previewData.title ?? "Target preview"}
+              className="h-10 w-14 shrink-0 rounded object-cover border border-white/10"
+            />
+          ) : (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-white/5 font-mono text-[10px] text-white/40">
+              {previewData.providerName}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="line-clamp-1 font-medium text-white/90 text-[11px]">
+              {previewData.title || `Video by ${previewData.authorName}`}
+            </p>
+            {previewData.title && (
+              <p className="text-[10px] text-white/50 truncate">{previewData.authorName}</p>
+            )}
+          </div>
+        </div>
+      )}
       <div className="summary-row"><span>Customer rate</span><strong>{service.currency} {calculateCustomerTotal(service.selling_rate, 1000)} / 1,000 units</strong></div>
       <div className="summary-row"><span>Quantity</span><strong>{quantityValid ? quantity.toLocaleString() : "—"}</strong></div>
       <div className="summary-row"><span>Price</span><strong>{service.currency} {total}</strong></div>

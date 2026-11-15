@@ -142,6 +142,36 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
                 </div>
 
                 <div className="checkout-specs-list">
+                  {checkoutOrder.target_preview && (
+                    <div className="checkout-preview-box mb-4 flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+                      {checkoutOrder.target_preview.thumbnailUrl ? (
+                        <img
+                          src={checkoutOrder.target_preview.thumbnailUrl}
+                          alt={checkoutOrder.target_preview.title || "Target preview"}
+                          className="h-14 w-20 shrink-0 rounded-lg object-cover border border-white/10"
+                        />
+                      ) : null}
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
+                          {checkoutOrder.target_preview.providerName || checkoutOrder.platform} Preview
+                        </span>
+                        {checkoutOrder.target_preview.title ? (
+                          <p className="line-clamp-1 text-xs font-medium text-white/90">
+                            {checkoutOrder.target_preview.title}
+                          </p>
+                        ) : checkoutOrder.target_preview.authorName ? (
+                          <p className="line-clamp-1 text-xs font-medium text-white/90">
+                            Video by {checkoutOrder.target_preview.authorName}
+                          </p>
+                        ) : null}
+                        {checkoutOrder.target_preview.title && checkoutOrder.target_preview.authorName && (
+                          <p className="text-[11px] text-white/50 truncate">
+                            {checkoutOrder.target_preview.authorName}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <div className="checkout-spec-row">
                     <span className="checkout-spec-label">Target {checkoutOrder.target_type}</span>
                     <span className="checkout-spec-value checkout-target-highlight">

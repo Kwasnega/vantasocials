@@ -74,6 +74,8 @@ export default async function AdminPage() {
     balance_currency: string | null;
     last_balance_check: string | null;
     balance_status: string | null;
+    balance_alert_status: string | null;
+    consecutive_check_failures: number | null;
   } | null = null;
   let providerHealthError: unknown = null;
 
@@ -91,7 +93,7 @@ export default async function AdminPage() {
       { data: paidOrders, error: revErr }
     ] = await Promise.all([
       db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status,created_at,profiles(email),services(name)").order("created_at", { ascending: false }).limit(10),
-      db.from("provider_health").select("configured,balance,balance_currency,last_balance_check,balance_status").eq("provider", "reliablesmm").maybeSingle(),
+      db.from("provider_health").select("configured,balance,balance_currency,last_balance_check,balance_status,balance_alert_status,consecutive_check_failures").eq("provider", "reliablesmm").maybeSingle(),
       db.from("wallet_transactions").select("amount_minor").eq("type", "DEPOSIT").eq("status", "COMPLETED").eq("currency", "GHS"),
       db.from("orders").select("total").eq("payment_status", "PAID").eq("currency", "GHS"),
     ]);
@@ -120,7 +122,7 @@ export default async function AdminPage() {
       db.from("orders").select("id", { count: "planned", head: true }),
       db.from("wallets").select("balance_minor,currency", { count: "planned" }).eq("currency", "GHS").limit(100),
       db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status,created_at,profiles(email),services(name)").order("created_at", { ascending: false }).limit(10),
-      db.from("provider_health").select("configured,balance,balance_currency,last_balance_check,balance_status").eq("provider", "reliablesmm").maybeSingle(),
+      db.from("provider_health").select("configured,balance,balance_currency,last_balance_check,balance_status,balance_alert_status,consecutive_check_failures").eq("provider", "reliablesmm").maybeSingle(),
       db.from("provider_catalog_services").select("id", { count: "planned", head: true }).eq("provider", "reliablesmm"),
       db.from("wallet_transactions").select("amount_minor").eq("type", "DEPOSIT").eq("status", "COMPLETED").eq("currency", "GHS"),
       db.from("orders").select("total").eq("payment_status", "PAID").eq("currency", "GHS")
@@ -158,6 +160,31 @@ export default async function AdminPage() {
     }
     return `${val} ${currency ?? "USD"}`;
   };
+
+  // Format last-balance-check as "X minutes ago" for display in the widget
+  const formatTimeAgo = (iso: string | null) => {
+    if (!iso) return "—";
+    const diffMs = Date.now() - new Date(iso).getTime();
+    if (diffMs < 0) return "just now";
+    const diffMin = Math.round(diffMs / 60_000);
+    if (diffMin < 1) return "just now";
+    if (diffMin === 1) return "1 minute ago";
+    if (diffMin < 60) return `${diffMin} minutes ago`;
+    const diffHr = Math.round(diffMin / 60);
+    if (diffHr === 1) return "1 hour ago";
+    if (diffHr < 24) return `${diffHr} hours ago`;
+    return new Date(iso).toLocaleDateString();
+  };
+
+  // Alert status display helpers (admin-only, never exposed to customers)
+  const alertStatus = providerHealth?.balance_alert_status ?? "UNKNOWN";
+  const ALERT_CHIP: Record<string, { label: string; color: string; bg: string }> = {
+    OK:       { label: "OK",       color: "#276749", bg: "#c6f6d5" },
+    WARNING:  { label: "WARNING",  color: "#7b4f00", bg: "#fefcbf" },
+    CRITICAL: { label: "CRITICAL", color: "#822727", bg: "#fed7d7" },
+    UNKNOWN:  { label: "UNKNOWN",  color: "#4a5568", bg: "#e2e8f0" },
+  };
+  const chip = ALERT_CHIP[alertStatus] ?? ALERT_CHIP["UNKNOWN"];
 
   return (
     <div className="admin-overview">
@@ -285,12 +312,32 @@ export default async function AdminPage() {
                   <strong>{formatProviderBalance(providerHealth?.balance, providerHealth?.balance_currency ?? "USD")}</strong>
                 </div>
                 <div>
-                  <span>Status</span>
-                  <strong>{providerHealth?.balance_status ?? "—"}</strong>
+                  <span>Alert status</span>
+                  <strong>
+                    <span style={{
+                      display: "inline-block",
+                      padding: "1px 8px",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.05em",
+                      color: chip.color,
+                      background: chip.bg,
+                    }}>
+                      {chip.label}
+                    </span>
+                    {(providerHealth?.consecutive_check_failures ?? 0) >= 3 && (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: "#e53e3e" }}>
+                        ({providerHealth?.consecutive_check_failures} consecutive API failures)
+                      </span>
+                    )}
+                  </strong>
                 </div>
                 <div>
                   <span>Last check</span>
-                  <strong>{providerHealth?.last_balance_check ? new Date(providerHealth.last_balance_check).toLocaleDateString() : "—"}</strong>
+                  <strong title={providerHealth?.last_balance_check ?? undefined}>
+                    {formatTimeAgo(providerHealth?.last_balance_check ?? null)}
+                  </strong>
                 </div>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>

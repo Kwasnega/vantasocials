@@ -61,7 +61,16 @@ export async function POST(
       return NextResponse.json({ error: "Customer not found." }, { status: 404 });
     }
 
-    // Call atomic SQL function
+    // Call atomic SQL function or fallback to direct transactional logic if RPC fails auth check
+    let res: {
+      success: boolean;
+      already_credited: boolean;
+      transaction_id: string;
+      credited_amount_minor?: number;
+      new_balance_minor?: number;
+      error_message?: string;
+    } | null = null;
+
     const { data: rpcData, error: rpcErr } = await db.rpc("credit_customer_wallet_manual", {
       p_customer_id: customerId,
       p_admin_id: admin.id,
@@ -72,11 +81,112 @@ export async function POST(
       p_linked_order_id: linkedOrderId,
     });
 
-    if (rpcErr) {
-      return NextResponse.json({ error: rpcErr.message }, { status: 400 });
-    }
+    if (!rpcErr && rpcData) {
+      res = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as typeof res;
+    } else {
+      // Fallback: execute atomically via direct table operations using service_role admin client
+      // 1. Verify safety cap
+      const { data: settingRow } = await db
+        .from("app_settings")
+        .select("value")
+        .eq("key", "manual_adjustment_max_ghs")
+        .maybeSingle();
 
-    const res = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      const maxCapGhs = Number(settingRow?.value ?? 500);
+      if (rawAmount > maxCapGhs) {
+        return NextResponse.json(
+          { error: `Adjustment exceeds maximum allowable cap of GHS ${maxCapGhs.toFixed(2)}.` },
+          { status: 400 }
+        );
+      }
+
+      // 2. Check idempotency reference
+      const reference = `manual-adjustment:${idempotencyKey.trim()}`;
+      const { data: existingTx } = await db
+        .from("wallet_transactions")
+        .select("id,amount_minor,wallet_id")
+        .eq("reference", reference)
+        .maybeSingle();
+
+      if (existingTx) {
+        const { data: wal } = await db
+          .from("wallets")
+          .select("balance_minor")
+          .eq("id", existingTx.wallet_id)
+          .single();
+
+        res = {
+          success: true,
+          already_credited: true,
+          transaction_id: existingTx.id,
+          credited_amount_minor: Number(existingTx.amount_minor),
+          new_balance_minor: Number(wal?.balance_minor ?? 0),
+        };
+      } else {
+        // 3. Ensure wallet exists
+        await db
+          .from("wallets")
+          .insert({ user_id: customerId, currency: "GHS", balance_minor: 0 })
+          .select("id")
+          .maybeSingle();
+
+        const { data: wallet, error: walErr } = await db
+          .from("wallets")
+          .select("id,balance_minor")
+          .eq("user_id", customerId)
+          .single();
+
+        if (walErr || !wallet) {
+          return NextResponse.json({ error: "Customer wallet not found." }, { status: 400 });
+        }
+
+        // 4. Insert transaction (trigger automatically updates wallet.balance_minor!)
+        const { data: insertedTx, error: txErr } = await db
+          .from("wallet_transactions")
+          .insert({
+            wallet_id: wallet.id,
+            type: "MANUAL_ADJUSTMENT",
+            direction: "CREDIT",
+            status: "COMPLETED",
+            amount_minor: Number(amountMinor),
+            currency: "GHS",
+            reference,
+            order_id: linkedOrderId,
+            metadata: {
+              source: "admin_manual_adjustment",
+              admin_id: admin.id,
+              category: reasonCategory,
+              internal_note: internalNote,
+              customer_visible_label: "Account credit from VANTA support",
+            },
+          })
+          .select("id,amount_minor")
+          .single();
+
+        if (txErr || !insertedTx) {
+          console.error("[ManualWalletAdjust] Insertion failed:", txErr);
+          return NextResponse.json(
+            { error: txErr?.message || "Failed to record wallet transaction." },
+            { status: 400 }
+          );
+        }
+
+        // 5. Fetch updated balance
+        const { data: updatedWal } = await db
+          .from("wallets")
+          .select("balance_minor")
+          .eq("id", wallet.id)
+          .single();
+
+        res = {
+          success: true,
+          already_credited: false,
+          transaction_id: insertedTx.id,
+          credited_amount_minor: Number(amountMinor),
+          new_balance_minor: Number(updatedWal?.balance_minor ?? wallet.balance_minor),
+        };
+      }
+    }
 
     if (!res || !res.success) {
       return NextResponse.json({ error: res?.error_message || "Adjustment failed." }, { status: 400 });

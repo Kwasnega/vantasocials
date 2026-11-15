@@ -2,6 +2,6 @@
   "regions": ["dub1"],
   "crons": [
     { "path": "/api/internal/fulfillment/cron", "schedule": "0 0 * * *" },
-    { "path": "/api/internal/balance/monitor", "schedule": "*/15 * * * *" }
+    { "path": "/api/internal/balance/monitor", "schedule": "0 2 * * *" }
   ]
 }

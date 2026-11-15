@@ -13,6 +13,7 @@ import { effectiveQuantityRange, quantityInRange } from "../../../lib/targets/qu
 import { assertPayableOrderTotal, calculateCustomerTotal, normalizeInternalUnitRate } from "../../../lib/pricing/customer-price";
 import { captureServerEvent } from "../../../lib/posthog/server";
 import { flushPostHogLogs, logPostHogInfo } from "../../../lib/posthog/logs";
+import { normalizeTarget } from "../../../lib/targets/normalize";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const IDEMPOTENCY_CONSTRAINT = "orders_user_id_idempotency_key_key";
@@ -200,6 +201,7 @@ export async function POST(request: Request) {
     const activeDynamicFields = dynamicFieldsResult.data;
     const hasDynamicFields = (activeDynamicFields ?? []).length > 0;
 
+    let rawTargetInput = targetValue;
     let dynamicValidation:
       | { schemaVersion: number; schemaSnapshot: unknown[]; validatedValues: Record<string, unknown> }
       | undefined;
@@ -246,6 +248,7 @@ export async function POST(request: Request) {
         targetTransform = { id: linkMapping.transform_id, version: Number(linkMapping.transform_version) };
       }
 
+      rawTargetInput = targetValueForValidation;
       const targetResult = normalizeTargetForService({
         platformSlug: platform.slug,
         targetType: service.target_type,
@@ -254,6 +257,18 @@ export async function POST(request: Request) {
         transformVersion: targetTransform?.version,
       });
       if (!targetResult.valid) return NextResponse.json({ error: targetResult.reason }, { status: 400 });
+
+      // Canonicalize target (strip tracking params, resolve TikTok short links, etc.)
+      const canonicalRes = await normalizeTarget({
+        platform: platform.slug,
+        targetType: service.target_type,
+        input: targetValueForValidation,
+      });
+      if (!canonicalRes.ok) {
+        return NextResponse.json({ error: canonicalRes.message }, { status: 400 });
+      }
+      // Store canonical value in validatedValues for the target field
+      dynamicValidation.validatedValues[targetField.field.key] = canonicalRes.canonical;
       if (!quantityInRange(quantity, quantityRange)) {
         return NextResponse.json({ error: `Quantity must be between ${quantityRange.min} and ${quantityRange.max}.` }, { status: 400 });
       }
@@ -268,7 +283,17 @@ export async function POST(request: Request) {
       if (!quantityInRange(quantity, quantityRange)) {
         return NextResponse.json({ error: `Quantity must be between ${quantityRange.min} and ${quantityRange.max}.` }, { status: 400 });
       }
-      normalizedTarget = result;
+
+      // Canonicalize target
+      const canonicalRes = await normalizeTarget({
+        platform: servicePlatform?.slug ?? "",
+        targetType: service.target_type,
+        input: targetValue,
+      });
+      if (!canonicalRes.ok) {
+        return NextResponse.json({ error: canonicalRes.message }, { status: 400 });
+      }
+      normalizedTarget = { valid: true, target: canonicalRes.canonical };
     }
 
     const unitPrice = normalizeInternalUnitRate(service.selling_rate);
@@ -286,6 +311,7 @@ export async function POST(request: Request) {
       service_id: service.id,
       target_type: service.target_type,
       ...(hasDynamicFields ? { target_value: "dynamic-configured-order" } : { target_value: normalizedTarget!.target }),
+      target_raw: rawTargetInput,
       quantity,
       unit_price: unitPrice,
       subtotal,

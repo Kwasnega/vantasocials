@@ -8,6 +8,8 @@ import {
   normalizePersistedProviderInputMappings,
   type PersistedProviderInputMapping,
 } from "./service-input-mapping";
+import { classifyProviderFailure } from "./failure-classifier";
+import { recordOrderEvent } from "../orders/events";
 
 export type DispatchOutcome =
   | "LIVE_FULFILLMENT_DISABLED"
@@ -51,9 +53,13 @@ async function transitionOrder(orderId: string, from: "NOT_STARTED" | "SUBMITTIN
   if (data !== true) throw new Error("FULFILLMENT_STATE_TRANSITION_REJECTED");
 }
 
-async function persistAttemptFailureState(orderId: string, currentStatus: string) {
+async function persistAttemptFailureState(
+  orderId: string,
+  currentStatus: string,
+  error?: unknown,
+) {
   const admin = createSupabaseAdminClient();
-  const { data: attempt, error } = await admin
+  const { data: attempt, error: attemptError } = await admin
     .from("provider_orders")
     .select("id,attempt_status,provider_order_id")
     .eq("order_id", orderId)
@@ -61,7 +67,7 @@ async function persistAttemptFailureState(orderId: string, currentStatus: string
     .order("attempt_number", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (error) throw error;
+  if (attemptError) throw attemptError;
   if (!attempt || !["FAILED_BEFORE_SUBMISSION", "UNKNOWN_PENDING_RECONCILIATION"].includes(attempt.attempt_status)) return;
 
   if (currentStatus === "NOT_STARTED") {
@@ -74,6 +80,37 @@ async function persistAttemptFailureState(orderId: string, currentStatus: string
       p_reason: "Submission outcome is ambiguous and no provider order ID was persisted.",
     });
     if (reviewError) throw reviewError;
+  }
+
+  // Classify and persist failure reason on the order itself
+  if (error !== undefined) {
+    try {
+      const { reason, detail } = classifyProviderFailure(error);
+      const now = new Date().toISOString();
+      await admin
+        .from("orders")
+        .update({
+          failure_reason: reason,
+          failure_detail: detail,
+          failed_at: now,
+          last_attempt_at: now,
+          // Increment attempt_count using raw expression isn't possible via PostgREST;
+          // we use attempt_number from provider_orders as the source of truth instead.
+          // attempt_count is incremented on every persistAttemptFailureState call.
+        })
+        .eq("id", orderId);
+    } catch (classifyErr) {
+      console.warn("[dispatch] Failed to persist failure classification:", classifyErr);
+    }
+    await recordOrderEvent({
+      orderId,
+      type: "failed",
+      statusBefore: currentStatus,
+      statusAfter: "FAILED",
+      message: `Fulfillment attempt failed: ${(error instanceof Error ? error.message : String(error))}`,
+      actor: "system",
+      meta: { error: error instanceof Error ? error.message : String(error) },
+    });
   }
 }
 
@@ -199,13 +236,22 @@ export async function dispatchPaidOrder(orderId: string): Promise<{ outcome: Dis
         await transitionOrder(order.id, "NOT_STARTED", "SUBMITTING");
       }
       await transitionOrder(order.id, "SUBMITTING", "SUBMITTED");
+      await recordOrderEvent({
+        orderId,
+        type: "submitted_to_provider",
+        statusBefore: "SUBMITTING",
+        statusAfter: "SUBMITTED",
+        message: "Order submitted to provider successfully.",
+        actor: "system",
+        meta: { outcome: "SUBMITTED" },
+      });
       await recordDispatchEvent(orderId, "CUSTOMER_FULFILLMENT_TRANSITION", "SUBMITTED", {
         from: order.fulfillment_status,
         to: "SUBMITTED",
       });
       return { outcome: "SUBMITTED" };
     } catch (error) {
-      await persistAttemptFailureState(order.id, order.fulfillment_status);
+      await persistAttemptFailureState(order.id, order.fulfillment_status, error);
       await recordDispatchEvent(orderId, "DISPATCH_FAILED", "DISPATCH_ERROR", {
         error: error instanceof Error ? error.message : "Submission failed",
       });

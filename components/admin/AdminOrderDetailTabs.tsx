@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type TabId = "overview" | "target-inputs" | "payments" | "fulfillment" | "ledger";
+type TabId = "timeline" | "overview" | "target-inputs" | "payments" | "fulfillment" | "ledger";
 
 export function AdminOrderDetailTabs({
   overviewContent,
@@ -10,22 +10,27 @@ export function AdminOrderDetailTabs({
   paymentsContent,
   fulfillmentContent,
   ledgerContent,
+  timelineContent,
   paymentsCount = 0,
   fulfillmentCount = 0,
   ledgerCount = 0,
+  eventsCount = 0,
 }: {
   overviewContent: React.ReactNode;
   targetInputsContent: React.ReactNode;
   paymentsContent: React.ReactNode;
   fulfillmentContent: React.ReactNode;
   ledgerContent: React.ReactNode;
+  timelineContent?: React.ReactNode;
   paymentsCount?: number;
   fulfillmentCount?: number;
   ledgerCount?: number;
+  eventsCount?: number;
 }) {
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [activeTab, setActiveTab] = useState<TabId>("timeline");
 
   const tabs: Array<{ id: TabId; label: string; count?: number }> = [
+    { id: "timeline", label: "Timeline", count: eventsCount },
     { id: "overview", label: "Overview" },
     { id: "target-inputs", label: "Target & Inputs" },
     { id: "payments", label: "Payments", count: paymentsCount },
@@ -89,6 +94,7 @@ export function AdminOrderDetailTabs({
       </div>
 
       <div role="tabpanel">
+        {activeTab === "timeline" && (timelineContent ?? <p style={{ color: "#888", padding: "16px 0" }}>No timeline content available.</p>)}
         {activeTab === "overview" && overviewContent}
         {activeTab === "target-inputs" && targetInputsContent}
         {activeTab === "payments" && paymentsContent}

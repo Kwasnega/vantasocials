@@ -5,6 +5,7 @@ import {
   reconcileReliableSMMAttempt,
   syncReliableSMMObservedStatus,
 } from "../../../../../lib/fulfillment/reliablesmm/reconcile";
+import { recoverStuckSubmittingOrders } from "../../../../../lib/fulfillment/retry-service";
 
 const SWEEP_BATCH_SIZE = 20;
 
@@ -14,6 +15,9 @@ export async function POST(request: NextRequest) {
   if (!expected || supplied !== `Bearer ${expected}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Recover orders stuck in SUBMITTING over 10 minutes (Requirement 3: move to needs-review / provider_timeout)
+  try { await recoverStuckSubmittingOrders(); } catch { /* best-effort non-blocking recovery */ }
 
   const admin = createSupabaseAdminClient();
   const olderThanIso = new Date(Date.now() - 60 * 1000).toISOString();

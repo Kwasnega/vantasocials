@@ -2,6 +2,7 @@ import "server-only";
 import crypto from "node:crypto";
 import { createSupabaseAdminClient } from "../../supabase/server";
 import { ReliableSMMAdapter } from "./adapter";
+import { recordOrderEvent } from "../../orders/events";
 const terminal = new Set(["COMPLETED","PARTIAL","FAILED","CANCELLED"]);
 const POLL_FAILURE_MANUAL_REVIEW_THRESHOLD = 3;
 const intervalSeconds=(n:number)=>Math.min(3600,Math.max(60,60*2**Math.min(n,5)));
@@ -15,7 +16,16 @@ export async function syncReliableSMMObservedStatus(attemptId:string){
  if(!a)return {outcome:"NOT_FOUND" as const};if(a.provider!=="reliablesmm"||!a.provider_order_id||a.manual_review_state!=="NONE"||!terminal.has(a.status)||!["SUBMITTED","UNKNOWN_PENDING_RECONCILIATION"].includes(a.attempt_status))return {outcome:"NOT_RECONCILABLE" as const};
  const current=await db.from("orders").select("fulfillment_status").eq("id",a.order_id).single();if(current.error)throw current.error;if(current.data.fulfillment_status===a.status)return {outcome:"ALREADY_CURRENT" as const,status:a.status};
  const transition=await db.rpc("transition_fulfillment_state",{p_order_id:a.order_id,p_from:current.data.fulfillment_status,p_to:a.status});if(transition.error)throw transition.error;if(transition.data!==true)throw new Error("FULFILLMENT_STATE_TRANSITION_REJECTED");
- return {outcome:"RECONCILED" as const,status:a.status};
+ await recordOrderEvent({
+      orderId: a.order_id,
+      type: "status_synced",
+      statusBefore: current.data.fulfillment_status,
+      statusAfter: a.status,
+      message: `Provider status synced to ${a.status}.`,
+      actor: "system",
+      meta: { provider: "reliablesmm", provider_order_id: a.provider_order_id },
+    });
+    return {outcome:"RECONCILED" as const,status:a.status};
 }
 export async function reconcileReliableSMMAttempt(attemptId:string,adapter=new ReliableSMMAdapter()){
  const db=createSupabaseAdminClient(); const {data:a,error}=await db.from("provider_orders").select("id,order_id,provider,provider_order_id,status,attempt_status,poll_attempts,manual_review_state").eq("id",attemptId).maybeSingle(); if(error)throw error;

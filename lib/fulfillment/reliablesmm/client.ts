@@ -57,7 +57,12 @@ async function request<T>(action: string, params: Record<string, string | number
   if (!response.ok) throw new ReliableSMMError("ReliableSMM request failed.", response.status, "HTTP_ERROR");
   if (!json || typeof json !== "object") throw new ReliableSMMError("ReliableSMM returned malformed JSON.", response.status, "MALFORMED_JSON");
   const value = json as RawService & { error?: unknown };
-  if (value.error) throw new ReliableSMMError("ReliableSMM rejected the request before creating an order.", response.status, "PROVIDER_REJECTED");
+  // Preserve the actual error message from ReliableSMM for failure classification.
+  // Known messages include: "Not enough balance on your account", "Bad link", "Invalid link", "Incorrect request".
+  if (value.error) {
+    const rawMessage = typeof value.error === "string" ? value.error : JSON.stringify(value.error);
+    throw new ReliableSMMError(rawMessage, response.status, "PROVIDER_REJECTED");
+  }
   return json as T;
 }
 

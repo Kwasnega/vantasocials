@@ -6,6 +6,7 @@ import { verifyPaystack, amountToMinorUnits } from "./paystack";
 import { assertPayableOrderTotal } from "../pricing/customer-price";
 import { captureServerEvent } from "../posthog/server";
 import { dispatchPaidOrder } from "../fulfillment/dispatch-paid-order";
+import { recordOrderEvent } from "../orders/events";
 
 type PaystackVerificationResponse = Awaited<ReturnType<typeof verifyPaystack>>;
 
@@ -41,6 +42,15 @@ export async function verifyAndSettlePaystack(
   const result = Array.isArray(settled) ? settled[0] : settled;
   const paid = Boolean(result?.settled);
   if (paid) {
+    await recordOrderEvent({
+      orderId: order.id,
+      type: "payment_confirmed",
+      statusBefore: "UNPAID",
+      statusAfter: "PAID",
+      message: `Payment confirmed via Paystack (ref: ${reference}).`,
+      actor: "webhook",
+      meta: { reference, provider: "paystack", total: order.total, currency: order.currency },
+    });
     await captureServerEvent(payment.user_id, "payment_completed", {
       payment_method: "paystack",
       total: order.total,

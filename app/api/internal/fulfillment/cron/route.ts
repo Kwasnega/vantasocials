@@ -10,6 +10,7 @@ import {
   type PersistedProviderInputMapping,
   type ProviderInputMapping,
 } from "../../../../../lib/fulfillment/service-input-mapping";
+import { recoverStuckSubmittingOrders } from "../../../../../lib/fulfillment/retry-service";
 
 const BATCH_SIZE = 10;
 
@@ -20,6 +21,8 @@ export async function POST(request: NextRequest) {
 
   const admin = createSupabaseAdminClient();
   await admin.rpc("cleanup_rate_limit_buckets", { p_before: new Date().toISOString() });
+  // Recover any orders stuck in SUBMITTING over 10 minutes (Requirement 3: move to needs-review / provider_timeout)
+  try { await recoverStuckSubmittingOrders(); } catch { /* best-effort non-blocking recovery */ }
   // Operational event retention is best-effort and must never block fulfillment.
   try { await admin.rpc("cleanup_provider_order_events", { p_before: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString() }); } catch { /* retention is non-blocking */ }
   const { data: orders, error } = await admin

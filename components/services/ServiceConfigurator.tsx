@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { CatalogService } from "../../lib/catalog/services";
 import type { CustomerInputField } from "../../lib/customer/service-contract";
 import { getFieldControlType, validateCustomerInputValue } from "../../lib/customer/service-contract";
+import { normalizeTarget } from "../../lib/targets/normalize";
 import {
   getTargetRequirements,
   normalizeTargetForService,
@@ -48,6 +49,35 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   const [linkWarning, setLinkWarning] = useState<LinkWarning | null>(null);
   const orderIdempotencyKey = useRef<StoredOrderIntent | null>(null);
   const orderIdempotencyServiceId = useRef(service.id);
+  // Real-time client-side canonicalization on paste or blur
+  async function cleanAndValidateTarget(rawInput: string, fieldKey?: string) {
+    if (!rawInput.trim()) return;
+    try {
+      const res = await normalizeTarget({
+        platform: platformSlug ?? "",
+        targetType: service.target_type,
+        input: rawInput,
+        resolveShortLinks: false, // In browser, clean URL without backend SSRF/DNS resolution
+      });
+      if (res.ok) {
+        if (fieldKey) {
+          setFieldValues((prev) => ({ ...prev, [fieldKey]: res.canonical }));
+          setFieldErrors((prev) => ({ ...prev, [fieldKey]: "" }));
+        } else {
+          setTarget(res.canonical);
+        }
+      } else {
+        if (fieldKey) {
+          setFieldErrors((prev) => ({ ...prev, [fieldKey]: res.message }));
+        } else {
+          setError(res.message);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
 
   async function getOrderIdempotencyKey(payload: Record<string, unknown>) {
     if (orderIdempotencyServiceId.current !== service.id) {
@@ -273,6 +303,11 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
             }
             if (error) setError("");
           },
+          onBlur: () => {
+            if (isTarget && currentValue.trim().length > 0) {
+              void cleanAndValidateTarget(currentValue, field.key);
+            }
+          },
           placeholder: field.placeholder,
           maxLength: field.validation?.maxLength,
           required: field.required,
@@ -325,7 +360,7 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
       <p className="order-form-intro">{isDynamic ? `Provide the requested details for this ${platform ?? "VANTA"} order.` : `Set the target and quantity for this ${platform ?? "VANTA"} service.`}</p>
       <div className="order-form-rate"><span>Rate per 1,000</span><strong>{service.currency} {formatCustomerRate(service.selling_rate)}</strong></div>
       {isDynamic ? renderDynamicFields() : <div className="configurator">
-        <label>{targetRequirements?.label ?? "Target URL"}<input type="url" required value={target} onChange={(event) => { beginDifferentOrderIntent(); setTarget(event.target.value); }} placeholder={targetRequirements?.example ?? "https://..."} aria-invalid={target.trim().length > 0 && !legacyTargetValidation.valid} /></label>
+        <label>{targetRequirements?.label ?? "Target URL"}<input type="url" required value={target} onChange={(event) => { beginDifferentOrderIntent(); setTarget(event.target.value); }} onBlur={() => { if (target.trim().length > 0) void cleanAndValidateTarget(target); }} placeholder={targetRequirements?.example ?? "https://..."} aria-invalid={target.trim().length > 0 && !legacyTargetValidation.valid} /></label>
         {targetRequirements ? <small>{targetRequirements.description} Example: {targetRequirements.example}</small> : <p role="alert">This service has an unsupported target configuration. Please contact support.</p>}
         {target.trim().length > 0 && !legacyTargetValidation.valid && <p className="order-field-error" role="alert">{legacyTargetValidation.reason}</p>}
         <label>Quantity<input type="text" inputMode="numeric" value={quantityInput} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value.replace(/[^0-9]/g, "")); setError(""); }} onBlur={() => { if (quantityInput && !quantityValid) setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`); }} aria-invalid={Boolean(quantityInput) && !quantityValid} /></label>

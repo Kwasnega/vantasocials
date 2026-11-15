@@ -30,26 +30,95 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
     details: { customer_id: customerId, customer_email: customer.email },
   });
 
-  // 2. Fetch financial summary via atomic RPC
-  const { data: summaryRows } = await db.rpc("get_customer_financial_summary", {
-    p_customer_id: customerId,
-  });
-  const summary = Array.isArray(summaryRows) ? summaryRows[0] : summaryRows;
+  // 2. Fetch financial summary via atomic RPC or fallback calculation
+  let summary: {
+    wallet_balance_ghs?: number;
+    wallet_currency?: string;
+    total_deposited_ghs?: number;
+    successful_deposits_count?: number;
+    first_deposit_at?: string | null;
+    last_deposit_at?: string | null;
+    total_spent_ghs?: number;
+    total_refunded_ghs?: number;
+    refunds_count?: number;
+    net_spent_ghs?: number;
+    ledger_derived_balance_minor?: number;
+    projected_balance_minor?: number;
+    balance_matches?: boolean;
+    total_orders_count?: number;
+    completed_orders_count?: number;
+    failed_orders_count?: number;
+    open_complaints_count?: number;
+  } | null = null;
+
+  try {
+    const { data: summaryRows, error: summaryErr } = await db.rpc("get_customer_financial_summary", {
+      p_customer_id: customerId,
+    });
+    if (!summaryErr && summaryRows) {
+      summary = Array.isArray(summaryRows) ? summaryRows[0] : summaryRows;
+    }
+  } catch (e) {
+    console.warn("[AdminCustomerDetailPage] RPC exception:", e);
+  }
 
   // 3. Parallel fetch of tabs data
   const [
+    { data: walletData },
     { data: orders },
     { data: deposits },
     { data: walletTx },
     { data: notes },
     { data: statusHist },
   ] = await Promise.all([
+    db.from("wallets").select("id,balance_minor,currency").eq("user_id", customerId).maybeSingle(),
     db.from("orders").select("id,public_order_id,quantity,total,currency,status,payment_status,fulfillment_status,failure_reason,refund_status,target_value,created_at,services(name,platforms(name))").eq("user_id", customerId).order("created_at", { ascending: false }).limit(100),
     db.from("wallet_deposit_payments").select("id,reference,amount_minor,currency,status,paid_at,created_at").eq("user_id", customerId).order("created_at", { ascending: false }).limit(100),
     db.from("wallet_transactions").select("id,type,direction,status,amount_minor,currency,reference,created_at,wallets!inner(user_id)").eq("wallets.user_id", customerId).order("created_at", { ascending: false }).limit(100),
     db.from("customer_notes").select("id,category,status,body,order_id,created_at").eq("customer_id", customerId).order("created_at", { ascending: false }).limit(100),
     db.from("customer_status_history").select("id,old_status,new_status,reason,created_at").eq("customer_id", customerId).order("created_at", { ascending: false }).limit(50),
   ]);
+
+  // If RPC failed or was unauthorized, calculate summary values directly from verified data
+  if (!summary) {
+    const successfulDeposits = (deposits || []).filter(
+      (d) => d.status === "COMPLETED" || d.status === "PAID"
+    );
+    const totalDepositedMinor = successfulDeposits.reduce((acc, d) => acc + Number(d.amount_minor || 0), 0);
+
+    const paidOrdersList = (orders || []).filter((o) => o.payment_status === "PAID");
+    const totalSpent = paidOrdersList.reduce((acc, o) => acc + Number(o.total || 0), 0);
+
+    const refundedOrdersList = (orders || []).filter((o) => o.refund_status === "REFUNDED");
+    const totalRefunded = refundedOrdersList.reduce((acc, o) => acc + Number(o.total || 0), 0);
+
+    const walletBalanceMinor = Number(walletData?.balance_minor ?? 0);
+
+    // Compute ledger-derived balance
+    const ledgerBalanceMinor = (walletTx || []).reduce((acc, t) => {
+      if (t.status !== "COMPLETED") return acc;
+      const amt = Number(t.amount_minor || 0);
+      return t.direction === "CREDIT" ? acc + amt : acc - amt;
+    }, 0);
+
+    summary = {
+      wallet_balance_ghs: walletBalanceMinor / 100,
+      wallet_currency: walletData?.currency || "GHS",
+      total_deposited_ghs: totalDepositedMinor / 100,
+      successful_deposits_count: successfulDeposits.length,
+      total_spent_ghs: totalSpent - totalRefunded,
+      total_refunded_ghs: totalRefunded,
+      refunds_count: refundedOrdersList.length,
+      net_spent_ghs: totalSpent - totalRefunded,
+      ledger_derived_balance_minor: ledgerBalanceMinor,
+      projected_balance_minor: walletBalanceMinor,
+      balance_matches: ledgerBalanceMinor === walletBalanceMinor,
+      total_orders_count: (orders || []).length,
+      completed_orders_count: (orders || []).filter((o) => o.fulfillment_status === "COMPLETED").length,
+      failed_orders_count: (orders || []).filter((o) => o.fulfillment_status === "FAILED").length,
+      open_complaints_count: (notes || []).filter((n) => n.status === "open" && n.category === "complaint").length,
+    };
+  }
 
   // Formatted orders
   const formattedOrders = (orders || []).map((o) => {

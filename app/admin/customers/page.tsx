@@ -58,22 +58,24 @@ export default async function AdminCustomersPage({ searchParams }: { searchParam
 
   const [
     { data: wallets, error: walletsError },
-    { data: paidOrders },
+    { data: customerOrders },
     { data: openComplaints },
   ] = customerIds.length
     ? await Promise.all([
         db.from("wallets").select("user_id,balance_minor,currency").in("user_id", customerIds),
-        db.from("orders").select("user_id,total,refund_amount,created_at").in("user_id", customerIds).eq("payment_status", "PAID"),
+        db.from("orders").select("user_id,total,refund_amount,created_at,payment_status").in("user_id", customerIds),
         db.from("customer_notes").select("customer_id").in("customer_id", customerIds).eq("status", "open").eq("category", "complaint"),
       ])
     : [{ data: [], error: null }, { data: [] }, { data: [] }];
 
-  // Compute spend and last order date per customer
+  // Compute spend (PAID orders only) and last order date (any order) per customer
   const spendByCustomer = new Map<string, number>();
   const lastOrderByCustomer = new Map<string, string>();
-  (paidOrders || []).forEach((o) => {
-    const net = Number(o.total || 0) - Number(o.refund_amount || 0);
-    spendByCustomer.set(o.user_id, (spendByCustomer.get(o.user_id) || 0) + net);
+  (customerOrders || []).forEach((o) => {
+    if (o.payment_status === "PAID") {
+      const net = Number(o.total || 0) - Number(o.refund_amount || 0);
+      spendByCustomer.set(o.user_id, (spendByCustomer.get(o.user_id) || 0) + net);
+    }
     const existingDate = lastOrderByCustomer.get(o.user_id);
     if (!existingDate || new Date(o.created_at) > new Date(existingDate)) {
       lastOrderByCustomer.set(o.user_id, o.created_at);

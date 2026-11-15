@@ -247,10 +247,11 @@ export default async function AdminOrdersPage({
     }
   }
 
+  // Query orders. We exclude target_fix_status from the select string so orders load cleanly even if migration 000008 is not present.
   let query = db
     .from("orders")
     .select(
-      "id,public_order_id,target_value,quantity,total,currency,payment_status,fulfillment_status,failure_reason,failure_detail,target_fix_status,refund_status,refund_amount,created_at,profiles(email),services(name,platforms(name))",
+      "id,public_order_id,target_value,quantity,total,currency,payment_status,fulfillment_status,failure_reason,failure_detail,refund_status,refund_amount,created_at,profiles(email),services(name,platforms(name))",
       { count: countStrategy },
     );
   if (params.payment) query = query.eq("payment_status", params.payment);
@@ -276,6 +277,10 @@ export default async function AdminOrdersPage({
     .order("created_at", { ascending: false })
     .limit(Math.min(limit, 100));
 
+  if (error) {
+    console.error("[AdminOrdersPage] orders query error:", error);
+  }
+
   // Compute bulk refundable orders on current page
   const bulkRefundableOrders = (orders || [])
     .filter((order) => {
@@ -285,7 +290,7 @@ export default async function AdminOrdersPage({
         fulfillment_status: order.fulfillment_status,
         failure_reason: order.failure_reason,
         refund_status: (order as { refund_status?: string }).refund_status,
-        target_fix_status: order.target_fix_status,
+        target_fix_status: (order as { target_fix_status?: string }).target_fix_status,
         total: order.total,
         currency: order.currency,
       });
@@ -531,7 +536,7 @@ export default async function AdminOrdersPage({
                         {order.failure_reason && (
                           <FailureReasonBadge reason={order.failure_reason} />
                         )}
-                        {order.target_fix_status === "AWAITING_CUSTOMER" && (
+                        {(order as { target_fix_status?: string }).target_fix_status === "AWAITING_CUSTOMER" && (
                           <span
                             style={{
                               display: "inline-block",
@@ -550,7 +555,7 @@ export default async function AdminOrdersPage({
                             ✉️ Awaiting Customer Fix
                           </span>
                         )}
-                        {order.target_fix_status === "FIXED" && (
+                        {(order as { target_fix_status?: string }).target_fix_status === "FIXED" && (
                           <span
                             style={{
                               display: "inline-block",
@@ -583,7 +588,7 @@ export default async function AdminOrdersPage({
                             fulfillment_status: order.fulfillment_status,
                             failure_reason: order.failure_reason,
                             refund_status: (order as { refund_status?: string }).refund_status,
-                            target_fix_status: order.target_fix_status,
+                            target_fix_status: (order as { target_fix_status?: string }).target_fix_status,
                             total: order.total,
                             currency: order.currency,
                           });

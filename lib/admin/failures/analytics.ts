@@ -43,7 +43,7 @@ export const getCachedFailureAnalytics = unstable_cache(
     const [ordersResult, servicesResult, platformsResult] = await Promise.all([
       db
         .from("orders")
-        .select("id,service_id,fulfillment_status,failure_reason,attempt_count,target_fix_status,created_at,updated_at")
+        .select("id,service_id,fulfillment_status,failure_reason,attempt_count,created_at,updated_at")
         .gte("created_at", windowStart),
       db.from("services").select("id,name,slug,platform_id,provider,provider_service_id"),
       db.from("platforms").select("id,name,slug"),
@@ -62,7 +62,7 @@ export const getCachedFailureAnalytics = unstable_cache(
     const failureRate = totalOrders > 0 ? Math.round((failedCount / totalOrders) * 1000) / 10 : 0;
 
     const awaitingAction = failedOrders.filter(
-      (o) => o.target_fix_status === "AWAITING_CUSTOMER" || o.failure_reason === "provider_insufficient_funds"
+      (o) => (o as { target_fix_status?: string }).target_fix_status === "AWAITING_CUSTOMER" || o.failure_reason === "provider_insufficient_funds"
     ).length;
 
     const retriedAndSucceeded = orders.filter(

@@ -169,3 +169,121 @@ The VANTA Team`;
 
   return { subject, html, text };
 }
+
+/**
+ * Generates customer notification email when money is manually added to their wallet by support.
+ */
+export function renderWalletCreditEmail(params: {
+  amountGhs: number;
+}): { subject: string; html: string; text: string } {
+  const { amountGhs } = params;
+  const formattedAmount = amountGhs.toFixed(2);
+  const subject = `Account Credit: GHS ${formattedAmount} added to your wallet`;
+
+  const text = `Hello,
+
+GHS ${formattedAmount} has been added to your VANTA wallet.
+
+You can use your wallet balance toward any order on VANTA.
+
+View your wallet: ${process.env.NEXT_PUBLIC_APP_URL || "https://vantasocials.shop"}/account/wallet
+
+Thank you,
+The VANTA Team`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0c10; color: #ffffff; padding: 24px; margin: 0; }
+    .card { background-color: #14161f; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; max-width: 520px; margin: 0 auto; padding: 32px; }
+    .logo { font-size: 20px; font-weight: 800; letter-spacing: 0.1em; color: #ffffff; margin-bottom: 24px; }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 0 16px; color: #48bb78; }
+    p { font-size: 14px; line-height: 1.6; color: rgba(255,255,255,0.7); margin: 0 0 16px; }
+    .amount-box { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0; }
+    .amount-val { font-size: 24px; font-weight: 700; color: #48bb78; }
+    .btn { display: inline-block; background-color: #ffffff; color: #000000; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">VANTA</div>
+    <h1>Account Credit Received</h1>
+    <p>GHS ${formattedAmount} has been added to your VANTA wallet.</p>
+    <div class="amount-box">
+      <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.5); margin-bottom: 4px;">Wallet Credit</div>
+      <div class="amount-val">+GHS ${formattedAmount}</div>
+    </div>
+    <p>These funds are immediately available to use on any order.</p>
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="${process.env.NEXT_PUBLIC_APP_URL || "https://vantasocials.shop"}/account/wallet" class="btn">View Wallet Balance</a>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+  return { subject, html, text };
+}
+
+/**
+ * Generates the customer notification email when an order is refunded to their wallet.
+ */
+export function renderOrderRefundEmail(params: {
+  publicOrderId: string;
+  serviceName: string;
+  amountGhs: number;
+}): { subject: string; html: string; text: string } {
+  const { publicOrderId, serviceName, amountGhs } = params;
+  const formattedAmount = amountGhs.toFixed(2);
+  const subject = `Order #${publicOrderId} Refunded to Wallet`;
+
+  const text = `Hello,
+
+Your order #${publicOrderId} (${serviceName}) couldn't be delivered.
+
+GHS ${formattedAmount} has been returned to your VANTA wallet. You can use your wallet balance toward any future order or top up at any time.
+
+View your wallet and orders: ${process.env.NEXT_PUBLIC_APP_URL || "https://vantasocials.shop"}/account/wallet
+
+Thank you,
+The VANTA Team`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0c10; color: #ffffff; padding: 24px; margin: 0; }
+    .card { background-color: #14161f; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; max-width: 520px; margin: 0 auto; padding: 32px; }
+    .logo { font-size: 20px; font-weight: 800; letter-spacing: 0.1em; color: #ffffff; margin-bottom: 24px; }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 0 16px; color: #6366f1; }
+    p { font-size: 14px; line-height: 1.6; color: rgba(255,255,255,0.7); margin: 0 0 16px; }
+    .amount-box { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0; }
+    .amount-val { font-size: 24px; font-weight: 700; color: #ffffff; }
+    .btn { display: inline-block; background-color: #ffffff; color: #000000; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">VANTA</div>
+    <h1>Order Refunded</h1>
+    <p>Your order <strong>#${publicOrderId}</strong> (${serviceName}) couldn't be delivered.</p>
+    <div class="amount-box">
+      <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.5); margin-bottom: 4px;">Credited to Wallet</div>
+      <div class="amount-val">GHS ${formattedAmount}</div>
+    </div>
+    <p>The funds are immediately available in your VANTA wallet to use on any order.</p>
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="${process.env.NEXT_PUBLIC_APP_URL || "https://vantasocials.shop"}/account/wallet" class="btn">View Wallet Balance</a>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+  return { subject, html, text };
+}

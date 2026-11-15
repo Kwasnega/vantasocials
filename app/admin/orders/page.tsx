@@ -8,7 +8,10 @@ import { parseOrderCursor } from "../../../lib/admin/cursor-validation";
 import type { OrderFailureReason } from "../../../lib/fulfillment/failure-classifier";
 import { AdminOrderRetryAction } from "../../../components/admin/AdminOrderRetryAction";
 import { AdminBulkRetryAction } from "../../../components/admin/AdminBulkRetryAction";
+import { AdminOrderRefundButton } from "../../../components/admin/AdminOrderRefundButton";
+import { AdminBulkRefundAction } from "../../../components/admin/AdminBulkRefundAction";
 import { getRetryEligibility } from "../../../lib/fulfillment/retry-eligibility";
+import { getRefundEligibility } from "../../../lib/orders/refund-eligibility";
 
 /** Build an orders page href including a cursor (for keyset pagination) */
 function buildOrdersHref(
@@ -247,7 +250,7 @@ export default async function AdminOrdersPage({
   let query = db
     .from("orders")
     .select(
-      "id,public_order_id,target_value,quantity,total,currency,payment_status,fulfillment_status,failure_reason,failure_detail,target_fix_status,created_at,profiles(email),services(name,platforms(name))",
+      "id,public_order_id,target_value,quantity,total,currency,payment_status,fulfillment_status,failure_reason,failure_detail,target_fix_status,refund_status,refund_amount,created_at,profiles(email),services(name,platforms(name))",
       { count: countStrategy },
     );
   if (params.payment) query = query.eq("payment_status", params.payment);
@@ -272,6 +275,28 @@ export default async function AdminOrdersPage({
   const { data: orders, count, error } = await query
     .order("created_at", { ascending: false })
     .limit(Math.min(limit, 100));
+
+  // Compute bulk refundable orders on current page
+  const bulkRefundableOrders = (orders || [])
+    .filter((order) => {
+      const r = getRefundEligibility({
+        id: order.id,
+        payment_status: order.payment_status,
+        fulfillment_status: order.fulfillment_status,
+        failure_reason: order.failure_reason,
+        refund_status: (order as { refund_status?: string }).refund_status,
+        target_fix_status: order.target_fix_status,
+        total: order.total,
+        currency: order.currency,
+      });
+      return r.eligible && !r.requiresConfirmation;
+    })
+    .map((order) => ({
+      id: order.id,
+      publicOrderId: order.public_order_id,
+      amount: Number(order.total ?? 0),
+      currency: order.currency,
+    }));
 
   // Failure reason summary chips — query counts for all failure reasons in the current window
   // (without the failure_reason filter, so we show counts across the other active filters)
@@ -362,6 +387,7 @@ export default async function AdminOrdersPage({
             <h2>All orders</h2>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <AdminBulkRefundAction eligibleOrders={bulkRefundableOrders} />
             <AdminBulkRetryAction insufficientFundsCount={failureSummary.provider_insufficient_funds ?? 0} />
             <span>{countLabel}</span>
           </div>
@@ -549,16 +575,45 @@ export default async function AdminOrdersPage({
                             payment_status: order.payment_status,
                             fulfillment_status: order.fulfillment_status,
                             failure_reason: order.failure_reason,
+                            refund_status: (order as { refund_status?: string }).refund_status,
                           });
-                          if (!eligibility.eligible && !eligibility.canForce) return null;
+                          const refundElig = getRefundEligibility({
+                            id: order.id,
+                            payment_status: order.payment_status,
+                            fulfillment_status: order.fulfillment_status,
+                            failure_reason: order.failure_reason,
+                            refund_status: (order as { refund_status?: string }).refund_status,
+                            target_fix_status: order.target_fix_status,
+                            total: order.total,
+                            currency: order.currency,
+                          });
                           return (
-                            <AdminOrderRetryAction
-                              orderId={order.id}
-                              publicOrderId={order.public_order_id}
-                              failureReason={order.failure_reason}
-                              canForce={eligibility.canForce}
-                              isEligible={eligibility.eligible}
-                            />
+                            <>
+                              {refundElig.canRefund && (
+                                <AdminOrderRefundButton
+                                  orderId={order.id}
+                                  publicOrderId={order.public_order_id}
+                                  amount={Number(order.total ?? 0)}
+                                  currency={order.currency}
+                                  customerEmail={(order.profiles as { email?: string } | null)?.email}
+                                  eligible={refundElig.eligible}
+                                  requiresConfirmation={refundElig.requiresConfirmation}
+                                  canRefund={refundElig.canRefund}
+                                  reason={refundElig.reason}
+                                  refundStatus={(order as { refund_status?: string }).refund_status}
+                                  compact
+                                />
+                              )}
+                              {(eligibility.eligible || eligibility.canForce) && (
+                                <AdminOrderRetryAction
+                                  orderId={order.id}
+                                  publicOrderId={order.public_order_id}
+                                  failureReason={order.failure_reason}
+                                  canForce={eligibility.canForce}
+                                  isEligible={eligibility.eligible}
+                                />
+                              )}
+                            </>
                           );
                         })()}
                       </div>

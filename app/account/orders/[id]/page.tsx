@@ -54,7 +54,7 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
   const { user, db } = await requireUser("/account/orders");
   const { id } = await params;
   const { data: order, error } = await db.from("orders")
-    .select("id,public_order_id,target_type,target_value,quantity,unit_price,total,currency,status,payment_status,fulfillment_status,created_at,updated_at,input_values,services(name,platforms(name))")
+    .select("id,public_order_id,target_type,target_value,quantity,unit_price,total,currency,status,payment_status,fulfillment_status,refund_status,refund_amount,created_at,updated_at,input_values,services(name,platforms(name))")
     .eq("public_order_id", id)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -172,10 +172,29 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
         <p className="dashboard-kicker">ORDER DETAILS</p>
         <div className="order-detail-title-row">
           <h1>{order.public_order_id}</h1>
-          <span className={`order-detail-payment-chip ${order.payment_status.toLowerCase().replaceAll("_", "-")}`}>
-            <i aria-hidden="true" />
-            {paymentLabel}
-          </span>
+          {order.refund_status === "REFUNDED" ? (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: "4px 10px",
+                borderRadius: "9999px",
+                fontSize: "12px",
+                fontWeight: 600,
+                backgroundColor: "rgba(168, 85, 247, 0.2)",
+                color: "#c084fc",
+                border: "1px solid rgba(168, 85, 247, 0.4)",
+              }}
+            >
+              Refunded to Wallet
+            </span>
+          ) : (
+            <span className={`order-detail-payment-chip ${order.payment_status.toLowerCase().replaceAll("_", "-")}`}>
+              <i aria-hidden="true" />
+              {paymentLabel}
+            </span>
+          )}
         </div>
         <p className="order-detail-service">
           <span>{service?.platforms?.name ?? "Platform"}</span>
@@ -191,14 +210,27 @@ export default async function AccountOrderDetail({ params }: { params: Promise<{
           <p>Quantity: {order.quantity.toLocaleString()}</p>
         </div>
         <div className="order-detail-statuses">
-          <article className={`order-detail-status-card payment-${order.payment_status.toLowerCase().replaceAll("_", "-")}`}>
-            <span className="order-detail-status-icon" aria-hidden="true">{paid ? "✓" : "¤"}</span>
-            <div>
-              <span className="order-detail-label">PAYMENT</span>
-              <h2>{paymentLabel}</h2>
-              <p>{getPaymentDescription(order.payment_status)}</p>
-            </div>
-          </article>
+          {order.refund_status === "REFUNDED" ? (
+            <article className="order-detail-status-card" style={{ borderColor: "rgba(168, 85, 247, 0.4)", backgroundColor: "rgba(168, 85, 247, 0.08)" }}>
+              <span className="order-detail-status-icon" aria-hidden="true" style={{ color: "#c084fc" }}>↩</span>
+              <div>
+                <span className="order-detail-label" style={{ color: "#c084fc" }}>PAYMENT REFUNDED</span>
+                <h2 style={{ color: "#fff" }}>Refunded to Wallet</h2>
+                <p>
+                  GHS {Number(order.refund_amount ?? order.total).toFixed(2)} has been credited back to your VANTA wallet and is ready to use.
+                </p>
+              </div>
+            </article>
+          ) : (
+            <article className={`order-detail-status-card payment-${order.payment_status.toLowerCase().replaceAll("_", "-")}`}>
+              <span className="order-detail-status-icon" aria-hidden="true">{paid ? "✓" : "¤"}</span>
+              <div>
+                <span className="order-detail-label">PAYMENT</span>
+                <h2>{paymentLabel}</h2>
+                <p>{getPaymentDescription(order.payment_status)}</p>
+              </div>
+            </article>
+          )}
           <article className={`order-detail-status-card fulfillment-${order.fulfillment_status.toLowerCase().replaceAll("_", "-")}`}>
             <span className="order-detail-status-icon" aria-hidden="true">
               {order.fulfillment_status === "COMPLETED" ? "✓" : "→"}

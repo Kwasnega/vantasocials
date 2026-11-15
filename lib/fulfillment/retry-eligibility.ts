@@ -14,6 +14,7 @@ export type RetryEligibilityInput = {
   failure_reason?: string | null;
   provider_order_id?: string | null;
   attempt_status?: string | null;
+  refund_status?: string | null;
   created_at?: string;
   last_attempt_at?: string | null;
 };
@@ -39,6 +40,13 @@ export type RetryEligibilityResult = {
  * - Customer error reasons (`invalid_target`): not eligible (customer must change target).
  */
 export function getRetryEligibility(order: RetryEligibilityInput): RetryEligibilityResult {
+  if (order.refund_status === "REFUNDED") {
+    return {
+      eligible: false,
+      reason: "Order has been refunded to the customer wallet and cannot be retried.",
+    };
+  }
+
   if (order.payment_status !== "PAID") {
     return {
       eligible: false,

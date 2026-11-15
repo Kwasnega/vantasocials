@@ -129,7 +129,7 @@ export async function retryOrderFulfillment(params: {
   // 1. Fetch current order with latest provider_orders info
   const { data: order, error: orderErr } = await db
     .from("orders")
-    .select("id,public_order_id,service_id,quantity,payment_status,fulfillment_status,failure_reason,attempt_count")
+    .select("id,public_order_id,service_id,quantity,payment_status,fulfillment_status,failure_reason,attempt_count,refund_status")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -157,6 +157,7 @@ export async function retryOrderFulfillment(params: {
     fulfillment_status: order.fulfillment_status,
     failure_reason: order.failure_reason,
     provider_order_id: latestPo?.provider_order_id ?? null,
+    refund_status: order.refund_status,
   });
 
   if (!eligibility.eligible && !(force && eligibility.canForce)) {
@@ -209,6 +210,7 @@ export async function retryOrderFulfillment(params: {
     })
     .eq("id", orderId)
     .eq("fulfillment_status", "FAILED")
+    .neq("refund_status", "REFUNDED")
     .select("id,public_order_id")
     .maybeSingle();
 

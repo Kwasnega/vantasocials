@@ -7,6 +7,7 @@ const items: Array<[string, string, string]> = [
   ["/admin", "Overview", "⊞"],
   ["/admin/orders", "Orders", "◫"],
   ["/admin/failures", "Failures", "⚠️"],
+  ["/admin/refunds", "Refunds", "↩"],
   ["/admin/customers", "Customers", "👥"],
   ["/admin/services", "Services", "⚡"],
   ["/admin/pricing", "Pricing", "₵"],

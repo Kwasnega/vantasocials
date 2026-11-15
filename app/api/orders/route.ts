@@ -130,6 +130,22 @@ async function findReplay(admin: ReturnType<typeof createSupabaseAdminClient>, u
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+
+  // Server-side check for suspended customer account
+  const admin = createSupabaseAdminClient();
+  const { data: customerProfile } = await admin
+    .from("profiles")
+    .select("account_status,account_status_reason")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (customerProfile?.account_status === "SUSPENDED") {
+    return NextResponse.json(
+      { error: `Your account is suspended (${customerProfile.account_status_reason || "Violation of terms"}). Please contact support.` },
+      { status: 403 }
+    );
+  }
+
   try { const rl = await consumeRateLimits(rulesFor("orders", user.id, clientIp(request), [5, 20])); if (!rl.allowed) return rateLimited(rl); } catch { return limiterUnavailable(); }
   if (Number(request.headers.get("content-length") || 0) > 8192) return NextResponse.json({ error: "Request body is too large." }, { status: 413 });
 

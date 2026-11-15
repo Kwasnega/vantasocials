@@ -8,6 +8,22 @@ import { getMinDepositSetting, MAX_DEPOSIT_MINOR, MAX_DEPOSIT_GHS } from "../../
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+
+  // Server-side check for suspended customer account
+  const admin = createSupabaseAdminClient();
+  const { data: customerProfile } = await admin
+    .from("profiles")
+    .select("account_status,account_status_reason")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (customerProfile?.account_status === "SUSPENDED") {
+    return NextResponse.json(
+      { error: `Your account is suspended (${customerProfile.account_status_reason || "Violation of terms"}). Deposits are blocked.` },
+      { status: 403 }
+    );
+  }
+
   try { const rl = await consumeRateLimits(rulesFor("wallet-deposit", user.id, clientIp(request), [3, 10])); if (!rl.allowed) return rateLimited(rl); } catch { return limiterUnavailable(); }
   if (Number(request.headers.get("content-length") || 0) > 4096) return NextResponse.json({ error: "Request body is too large." }, { status: 413 });
   let body: unknown;

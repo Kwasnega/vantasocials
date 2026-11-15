@@ -35,8 +35,16 @@ export default async function AdminCustomersPage({ searchParams }: { searchParam
     }
   }
 
-  let query = db.from("profiles").select("id,email,is_admin,created_at", { count: countStrategy });
-  if (p.q?.trim()) query = query.ilike("email", `%${p.q.trim()}%`);
+  let query = db.from("profiles").select("id,email,is_admin,account_status,created_at", { count: countStrategy });
+  if (p.q?.trim()) {
+    const term = p.q.trim();
+    // Allow searching by email or exact UUID
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(term)) {
+      query = query.eq("id", term);
+    } else {
+      query = query.ilike("email", `%${term}%`);
+    }
+  }
   // Keyset filter: rows with created_at strictly before cursor, OR same created_at but id < cursorId
   if (cursorCreatedAt && cursorId) {
     query = query.or(`created_at.lt.${cursorCreatedAt},and(created_at.eq.${cursorCreatedAt},id.lt.${cursorId})`);
@@ -46,9 +54,33 @@ export default async function AdminCustomersPage({ searchParams }: { searchParam
     .order("id", { ascending: false })
     .limit(Math.min(limit, 100));
 
-  const { data: wallets, error: walletsError } = customers?.length
-    ? await db.from("wallets").select("user_id,balance_minor,currency").in("user_id", customers.map((x) => x.id))
-    : { data: [], error: null };
+  const customerIds = (customers ?? []).map((x) => x.id);
+
+  const [
+    { data: wallets, error: walletsError },
+    { data: paidOrders },
+    { data: openComplaints },
+  ] = customerIds.length
+    ? await Promise.all([
+        db.from("wallets").select("user_id,balance_minor,currency").in("user_id", customerIds),
+        db.from("orders").select("user_id,total,refund_amount,created_at").in("user_id", customerIds).eq("payment_status", "PAID"),
+        db.from("customer_notes").select("customer_id").in("customer_id", customerIds).eq("status", "open").eq("category", "complaint"),
+      ])
+    : [{ data: [], error: null }, { data: [] }, { data: [] }];
+
+  // Compute spend and last order date per customer
+  const spendByCustomer = new Map<string, number>();
+  const lastOrderByCustomer = new Map<string, string>();
+  (paidOrders || []).forEach((o) => {
+    const net = Number(o.total || 0) - Number(o.refund_amount || 0);
+    spendByCustomer.set(o.user_id, (spendByCustomer.get(o.user_id) || 0) + net);
+    const existingDate = lastOrderByCustomer.get(o.user_id);
+    if (!existingDate || new Date(o.created_at) > new Date(existingDate)) {
+      lastOrderByCustomer.set(o.user_id, o.created_at);
+    }
+  });
+
+  const openComplaintsSet = new Set((openComplaints || []).map((c) => c.customer_id));
   const total = count;
   const admins = (customers ?? []).filter((customer) => customer.is_admin).length;
   const walletTotals = (wallets ?? []).reduce<Record<string, number>>((totals, wallet) => {
@@ -87,9 +119,54 @@ export default async function AdminCustomersPage({ searchParams }: { searchParam
     <section className="customers-panel">
       <div className="customers-panel-heading"><div><p className="dashboard-kicker">CUSTOMER DIRECTORY</p><h2>All accounts</h2></div><span>{countLabel}</span></div>
       <AdminSearchInput id="customer-search" name="q" initialValue={p.q} placeholder="Search by email address" buttonText="Search" />
-      {customersError ? <AdminQueryError message="Customer records could not be loaded." /> : customers?.length ? <div className="dashboard-table-wrap"><table className="dashboard-table customers-table"><thead><tr><th>Customer</th><th>Wallet balance</th><th>Joined</th><th>Access</th></tr></thead><tbody>{customers.map((customer) => {
+      {customersError ? <AdminQueryError message="Customer records could not be loaded." /> : customers?.length ? <div className="dashboard-table-wrap"><table className="dashboard-table customers-table"><thead><tr><th>Customer</th><th>Wallet balance</th><th>Total spent</th><th>Last order</th><th>Status</th><th>Access</th><th>Actions</th></tr></thead><tbody>{customers.map((customer) => {
         const wallet = (wallets ?? []).find((item) => item.user_id === customer.id);
-        return <tr key={customer.id}><td><div className="customer-identity"><span className="customer-avatar">{(customer.email ?? "?").slice(0, 1).toUpperCase()}</span><span><strong>{customer.email}</strong><small>{customer.id.slice(0, 8)}…</small></span></div></td><td>{walletsError ? <span>Unavailable</span> : wallet ? <strong>{(Number(wallet.balance_minor ?? 0) / 100).toFixed(2)} <em>{wallet.currency}</em></strong> : <span>No wallet record</span>}</td><td>{new Date(customer.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</td><td><span className={`customer-access ${customer.is_admin ? "is-admin" : ""}`}><i />{customer.is_admin ? "Admin" : "Customer"}</span></td></tr>;
+        const spent = spendByCustomer.get(customer.id) || 0;
+        const lastOrder = lastOrderByCustomer.get(customer.id);
+        const hasOpenComplaint = openComplaintsSet.has(customer.id);
+        const status = (customer as { account_status?: string }).account_status || "ACTIVE";
+
+        return <tr key={customer.id}>
+          <td>
+            <Link href={`/admin/customers/${customer.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+              <div className="customer-identity">
+                <span className="customer-avatar">{(customer.email ?? "?").slice(0, 1).toUpperCase()}</span>
+                <span>
+                  <strong>{customer.email}</strong>
+                  <small>{customer.id.slice(0, 8)}…</small>
+                  {hasOpenComplaint && (
+                    <span style={{ fontSize: "10px", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", marginLeft: "6px" }}>
+                      Complaint Open
+                    </span>
+                  )}
+                </span>
+              </div>
+            </Link>
+          </td>
+          <td>{walletsError ? <span>Unavailable</span> : wallet ? <strong>{(Number(wallet.balance_minor ?? 0) / 100).toFixed(2)} <em>{wallet.currency}</em></strong> : <span>No wallet record</span>}</td>
+          <td><strong>GHS {spent.toFixed(2)}</strong></td>
+          <td style={{ fontSize: "12px", color: "rgba(255,255,255,0.6)" }}>{lastOrder ? new Date(lastOrder).toLocaleDateString() : "No orders"}</td>
+          <td>
+            <span
+              style={{
+                fontSize: "11px",
+                fontWeight: 600,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                backgroundColor: status === "SUSPENDED" ? "rgba(239, 68, 68, 0.2)" : status === "FLAGGED" ? "rgba(245, 158, 11, 0.2)" : "rgba(16, 185, 129, 0.2)",
+                color: status === "SUSPENDED" ? "#ef4444" : status === "FLAGGED" ? "#f59e0b" : "#10b981",
+              }}
+            >
+              {status}
+            </span>
+          </td>
+          <td><span className={`customer-access ${customer.is_admin ? "is-admin" : ""}`}><i />{customer.is_admin ? "Admin" : "Customer"}</span></td>
+          <td>
+            <Link href={`/admin/customers/${customer.id}`} className="admin-row-action" style={{ fontSize: "12px", color: "#a5b4fc" }}>
+              View profile →
+            </Link>
+          </td>
+        </tr>;
       })}</tbody></table></div> : <AdminEmptyState message="No customers found. Try a different email address or clear the search." />}
       {!customersError && nextCursor && (
         <nav className="admin-pagination" aria-label="Customer pages">

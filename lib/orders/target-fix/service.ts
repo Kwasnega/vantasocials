@@ -37,12 +37,16 @@ export async function createAndSendFixToken(params: {
   // 1. Fetch order details, customer email, service name
   const { data: order, error } = await db
     .from("orders")
-    .select("id,public_order_id,user_id,target_value,failure_reason,payment_status,fulfillment_status,profiles(email),services(name)")
+    .select("id,public_order_id,user_id,target_value,failure_reason,payment_status,fulfillment_status,refund_status,profiles(email),services(name)")
     .eq("id", orderId)
     .maybeSingle();
 
   if (error || !order) {
     return { ok: false, message: "Order not found." };
+  }
+
+  if (order.refund_status === "REFUNDED") {
+    return { ok: false, message: "Order has been refunded and cannot be modified." };
   }
 
   if (order.payment_status !== "PAID") {
@@ -194,12 +198,16 @@ export async function validateCustomerFixToken(rawToken: string): Promise<{
   // Verify order state
   const { data: order } = await db
     .from("orders")
-    .select("id,public_order_id,target_type,target_value,quantity,payment_status,fulfillment_status,failure_reason,services(name,platforms(name,slug))")
+    .select("id,public_order_id,target_type,target_value,quantity,payment_status,fulfillment_status,failure_reason,refund_status,services(name,platforms(name,slug))")
     .eq("id", record.order_id)
     .maybeSingle();
 
   if (!order) {
     return { valid: false, errorCode: "NOT_FOUND" };
+  }
+
+  if (order.refund_status === "REFUNDED") {
+    return { valid: false, errorCode: "ALREADY_FULFILLED" };
   }
 
   if (["COMPLETED", "PROCESSING", "SUBMITTED"].includes(order.fulfillment_status)) {
@@ -253,12 +261,16 @@ export async function executeTargetEditAndRetry(params: {
   // 1. Fetch current order with platform details
   const { data: order, error: orderErr } = await db
     .from("orders")
-    .select("id,public_order_id,target_value,target_raw,target_type,payment_status,fulfillment_status,failure_reason,services(name,platforms(slug)),profiles(email)")
+    .select("id,public_order_id,target_value,target_raw,target_type,payment_status,fulfillment_status,failure_reason,refund_status,services(name,platforms(slug)),profiles(email)")
     .eq("id", orderId)
     .maybeSingle();
 
   if (orderErr || !order) {
     return { ok: false, message: "Order not found." };
+  }
+
+  if (order.refund_status === "REFUNDED") {
+    return { ok: false, message: "Order has been refunded and cannot be modified." };
   }
 
   if (order.payment_status !== "PAID") {

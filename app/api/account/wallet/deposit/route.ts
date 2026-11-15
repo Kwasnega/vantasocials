@@ -3,9 +3,7 @@ import { getCurrentUser, createSupabaseAdminClient } from "../../../../../lib/su
 import { amountToMinorUnits, initializeWalletPaystack, PaystackApiError } from "../../../../../lib/payments/paystack";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../../lib/security/rate-limit";
 import { captureServerEvent } from "../../../../../lib/posthog/server";
-
-const MIN_DEPOSIT_MINOR = 3500n;
-const MAX_DEPOSIT_MINOR = 1000000n;
+import { getMinDepositSetting, MAX_DEPOSIT_MINOR, MAX_DEPOSIT_GHS } from "../../../../../lib/settings/deposit-settings";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -18,7 +16,22 @@ export async function POST(request: Request) {
   let createdReference: string | null = null;
   try {
     const amountMinor = amountToMinorUnits(amount);
-    if (amountMinor < MIN_DEPOSIT_MINOR || amountMinor > MAX_DEPOSIT_MINOR) return NextResponse.json({ error: "Deposit amount must be between GHS 35.00 and GHS 10,000.00." }, { status: 400 });
+
+    // Read current minimum deposit limit dynamically from settings
+    const { minDepositGhs } = await getMinDepositSetting();
+    const minDepositMinor = BigInt(Math.round(minDepositGhs * 100));
+
+    if (amountMinor < minDepositMinor || amountMinor > MAX_DEPOSIT_MINOR) {
+      return NextResponse.json(
+        {
+          error: `Deposit amount must be between GHS ${minDepositGhs.toFixed(2)} and GHS ${MAX_DEPOSIT_GHS.toLocaleString("en-US", { minimumFractionDigits: 2 })}.`,
+          code: "DEPOSIT_AMOUNT_OUT_OF_BOUNDS",
+          minDepositGhs,
+          maxDepositGhs: MAX_DEPOSIT_GHS,
+        },
+        { status: 400 }
+      );
+    }
     const admin = createSupabaseAdminClient();
     const idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || crypto.randomUUID();
     if (!/^[A-Za-z0-9._:-]{8,200}$/.test(idempotencyKey)) return NextResponse.json({ error: "Invalid idempotency key." }, { status: 400 });

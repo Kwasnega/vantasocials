@@ -4,6 +4,8 @@ import { createSupabaseAdminClient } from "../../../lib/supabase/server";
 import { FxRateForm } from "../pricing/FxRateForm";
 import { AdminQueryError } from "../AdminDataState";
 import { AdminDataWipe } from "./AdminDataWipe";
+import { MinDepositControl } from "./MinDepositControl";
+import { getMinDepositSetting } from "../../../lib/settings/deposit-settings";
 
 const settings = [
   { icon: "◈", label: "Workspace", title: "Admin workspace", text: "Review the control center and keep your VANTA operations organized.", href: "/admin" },
@@ -13,8 +15,66 @@ const settings = [
 ];
 
 export default async function AdminSettingsPage() {
-  const { admin } = await requireAdmin(); if (!admin) return null;
+  const { admin } = await requireAdmin();
+  if (!admin) return null;
   const db = createSupabaseAdminClient();
-  const { data: setting, error } = await db.from("pricing_settings").select("fx_rate").eq("key", "USD_GHS").maybeSingle();
-  return <div className="admin-settings-page"><header className="admin-settings-hero"><div><p className="dashboard-kicker">ADMIN / CONTROL CENTER</p><h1>Settings<span>.</span></h1><p>Configure the parts of VANTA that keep your catalog, pricing, and provider operations moving.</p></div><div className="admin-settings-mark" aria-hidden="true">V</div></header><section className="admin-settings-intro"><div><p className="dashboard-kicker">SYSTEM SETTINGS</p><h2>Everything in one place.</h2></div><span>4 areas</span></section><div className="admin-settings-grid">{settings.map((item) => <Link className="admin-setting-card" href={item.href} key={item.title}><span className="admin-setting-icon" aria-hidden="true">{item.icon}</span><div><p>{item.label}</p><h3>{item.title}</h3><span>{item.text}</span></div><b aria-hidden="true">↗</b></Link>)}</div>{error ? <AdminQueryError message="Exchange-rate settings could not be loaded. The current rate is unknown." /> : <FxRateForm initialValue={setting?.fx_rate == null ? null : String(setting.fx_rate)} />}<AdminDataWipe /><section className="admin-settings-note"><span className="admin-settings-note-icon">!</span><div><p className="dashboard-kicker">ACCESS & SAFETY</p><h2>Changes are intentionally scoped.</h2><p>Settings that affect money movement, customer access, or provider fulfillment stay behind their dedicated admin workflows.</p></div></section></div>;
+
+  const [fxResult, minDepositSetting] = await Promise.all([
+    db.from("pricing_settings").select("fx_rate").eq("key", "USD_GHS").maybeSingle(),
+    getMinDepositSetting(),
+  ]);
+
+  const { data: setting, error: fxError } = fxResult;
+
+  return (
+    <div className="admin-settings-page">
+      <header className="admin-settings-hero">
+        <div>
+          <p className="dashboard-kicker">ADMIN / CONTROL CENTER</p>
+          <h1>Settings<span>.</span></h1>
+          <p>Configure the parts of VANTA that keep your catalog, pricing, and provider operations moving.</p>
+        </div>
+        <div className="admin-settings-mark" aria-hidden="true">V</div>
+      </header>
+      <section className="admin-settings-intro">
+        <div>
+          <p className="dashboard-kicker">SYSTEM SETTINGS</p>
+          <h2>Everything in one place.</h2>
+        </div>
+        <span>4 areas</span>
+      </section>
+      <div className="admin-settings-grid">
+        {settings.map((item) => (
+          <Link className="admin-setting-card" href={item.href} key={item.title}>
+            <span className="admin-setting-icon" aria-hidden="true">{item.icon}</span>
+            <div>
+              <p>{item.label}</p>
+              <h3>{item.title}</h3>
+              <span>{item.text}</span>
+            </div>
+            <b aria-hidden="true">↗</b>
+          </Link>
+        ))}
+      </div>
+      {fxError ? (
+        <AdminQueryError message="Exchange-rate settings could not be loaded. The current rate is unknown." />
+      ) : (
+        <FxRateForm initialValue={setting?.fx_rate == null ? null : String(setting.fx_rate)} />
+      )}
+      <MinDepositControl
+        initialValue={minDepositSetting.minDepositGhs}
+        initialUpdatedAt={minDepositSetting.updatedAt}
+        initialUpdatedByEmail={minDepositSetting.updatedByEmail}
+      />
+      <AdminDataWipe />
+      <section className="admin-settings-note">
+        <span className="admin-settings-note-icon">!</span>
+        <div>
+          <p className="dashboard-kicker">ACCESS & SAFETY</p>
+          <h2>Changes are intentionally scoped.</h2>
+          <p>Settings that affect money movement, customer access, or provider fulfillment stay behind their dedicated admin workflows.</p>
+        </div>
+      </section>
+    </div>
+  );
 }

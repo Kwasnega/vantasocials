@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { validateMinDepositInput } from "../../../lib/settings/deposit-settings";
+import { validateMinDepositInput } from "../../../lib/settings/deposit-validation";
 
 type MinDepositControlProps = {
   initialValue: number;

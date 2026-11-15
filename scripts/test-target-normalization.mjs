@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { normalizeTarget, isPrivateOrInternalIp, resolveTikTokShortLink } from "../lib/targets/normalize.ts";
+import { normalizeTarget } from "../lib/targets/normalize.ts";
+import { isPrivateOrInternalIp, resolveTikTokShortLink } from "../lib/targets/redirect-resolver.ts";
 
 async function runTests() {
   console.log("=== RUNNING TARGET NORMALIZATION UNIT TESTS ===");

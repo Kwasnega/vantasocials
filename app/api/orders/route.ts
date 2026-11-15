@@ -13,7 +13,7 @@ import { effectiveQuantityRange, quantityInRange } from "../../../lib/targets/qu
 import { assertPayableOrderTotal, calculateCustomerTotal, normalizeInternalUnitRate } from "../../../lib/pricing/customer-price";
 import { captureServerEvent } from "../../../lib/posthog/server";
 import { flushPostHogLogs, logPostHogInfo } from "../../../lib/posthog/logs";
-import { normalizeTarget } from "../../../lib/targets/normalize";
+import { normalizeTargetServer as normalizeTarget } from "../../../lib/targets/normalize-server";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const IDEMPOTENCY_CONSTRAINT = "orders_user_id_idempotency_key_key";
@@ -202,6 +202,7 @@ export async function POST(request: Request) {
     const hasDynamicFields = (activeDynamicFields ?? []).length > 0;
 
     let rawTargetInput = targetValue;
+    let targetConfidence: "high" | "low" = "high";
     let dynamicValidation:
       | { schemaVersion: number; schemaSnapshot: unknown[]; validatedValues: Record<string, unknown> }
       | undefined;
@@ -267,6 +268,7 @@ export async function POST(request: Request) {
       if (!canonicalRes.ok) {
         return NextResponse.json({ error: canonicalRes.message }, { status: 400 });
       }
+      targetConfidence = canonicalRes.confidence;
       // Store canonical value in validatedValues for the target field
       dynamicValidation.validatedValues[targetField.field.key] = canonicalRes.canonical;
       if (!quantityInRange(quantity, quantityRange)) {
@@ -293,6 +295,7 @@ export async function POST(request: Request) {
       if (!canonicalRes.ok) {
         return NextResponse.json({ error: canonicalRes.message }, { status: 400 });
       }
+      targetConfidence = canonicalRes.confidence;
       normalizedTarget = { valid: true, target: canonicalRes.canonical };
     }
 
@@ -312,6 +315,7 @@ export async function POST(request: Request) {
       target_type: service.target_type,
       ...(hasDynamicFields ? { target_value: "dynamic-configured-order" } : { target_value: normalizedTarget!.target }),
       target_raw: rawTargetInput,
+      target_confidence: targetConfidence,
       quantity,
       unit_price: unitPrice,
       subtotal,

@@ -21,7 +21,7 @@ export default async function AdminFailuresPage({
   const data = await getCachedFailureAnalytics(hours);
 
   return (
-    <div className="admin-overview p-6 max-w-7xl mx-auto">
+    <div className="admin-overview">
       <FailuresViewClient data={data} activeWindow={activeWindow} />
     </div>
   );

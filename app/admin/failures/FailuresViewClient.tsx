@@ -17,18 +17,22 @@ export function FailuresViewClient({ data, activeWindow }: FailuresViewClientPro
     : data.by_service;
 
   return (
-    <div className="space-y-6">
-      {/* 1. Window Selector & Header Meta */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+    <div>
+      {/* 1. Hero Header */}
+      <header className="failures-hero">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-white">Order Failures Analytics</h1>
-          <p className="text-xs text-white/60">
+          <p className="dashboard-kicker">ADMIN / MONITORING</p>
+          <h1>Order Failures<span>.</span></h1>
+          <p className="customers-intro">
             Real-time tracking of order failures by reason, platform, and provider service.
           </p>
         </div>
+        <div className="failures-hero-mark" aria-hidden="true">⚠️</div>
+      </header>
 
-        {/* Window Tabs */}
-        <div className="flex items-center rounded-xl border border-white/10 bg-black/40 p-1 text-xs">
+      {/* 2. Controls & Window Selector */}
+      <div className="failures-controls">
+        <div className="failures-tabs">
           {[
             { key: "24h", label: "Last 24 Hours" },
             { key: "7d", label: "Last 7 Days" },
@@ -38,11 +42,7 @@ export function FailuresViewClient({ data, activeWindow }: FailuresViewClientPro
               key={w.key}
               href={`/admin/failures?window=${w.key}`}
               prefetch={false}
-              className={`rounded-lg px-3 py-1.5 font-medium transition-colors min-h-[36px] flex items-center ${
-                activeWindow === w.key
-                  ? "bg-purple-600 text-white shadow"
-                  : "text-white/60 hover:text-white"
-              }`}
+              className={`failures-tab-link ${activeWindow === w.key ? "is-active" : ""}`}
             >
               {w.label}
             </Link>
@@ -50,72 +50,84 @@ export function FailuresViewClient({ data, activeWindow }: FailuresViewClientPro
         </div>
       </div>
 
-      {/* 2. Headline Summary KPIs */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <article className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <span className="text-xs text-white/50 uppercase tracking-wider font-semibold">Total Orders</span>
-          <p className="mt-1 text-2xl font-bold text-white">{data.total_orders.toLocaleString()}</p>
-          <small className="text-[11px] text-white/40">In this window</small>
+      {/* 3. Headline Summary KPIs */}
+      <div className="failures-stats-grid">
+        <article className="failures-stat-card">
+          <span>Total Orders</span>
+          <strong>{data.total_orders.toLocaleString()}</strong>
+          <small>In this window</small>
         </article>
 
-        <article className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <span className="text-xs text-white/50 uppercase tracking-wider font-semibold">Failed Orders</span>
-          <p className="mt-1 text-2xl font-bold text-red-400">{data.failed_orders.toLocaleString()}</p>
-          <small className="text-[11px] text-white/40">Fulfillment status = FAILED</small>
+        <article className="failures-stat-card">
+          <span>Failed Orders</span>
+          <strong style={{ color: "#f87171" }}>{data.failed_orders.toLocaleString()}</strong>
+          <small>Fulfillment status = FAILED</small>
         </article>
 
-        <article className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <span className="text-xs text-white/50 uppercase tracking-wider font-semibold">Failure Rate</span>
-          <p className={`mt-1 text-2xl font-bold ${data.failure_rate > 10 ? "text-amber-400" : "text-white"}`}>
+        <article className="failures-stat-card">
+          <span>Failure Rate</span>
+          <strong style={{ color: data.failure_rate > 10 ? "#fbbf24" : "#fff" }}>
             {data.failure_rate}%
-          </p>
-          <small className="text-[11px] text-white/40">Of total orders</small>
+          </strong>
+          <small>Of total orders</small>
         </article>
 
-        <article className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <span className="text-xs text-white/50 uppercase tracking-wider font-semibold">Awaiting Action</span>
-          <p className="mt-1 text-2xl font-bold text-purple-300">{data.awaiting_action.toLocaleString()}</p>
-          <small className="text-[11px] text-white/40">Target fix or low balance</small>
+        <article className="failures-stat-card">
+          <span>Awaiting Action</span>
+          <strong style={{ color: "#d883ff" }}>{data.awaiting_action.toLocaleString()}</strong>
+          <small>Target fix or low balance</small>
         </article>
       </div>
 
-      {/* 3. Spikes Panel (Alerts early on bad provider services) */}
+      {/* 4. Spikes Panel (Alerts early on bad provider services) */}
       {data.spikes && data.spikes.length > 0 && (
-        <section className="rounded-xl border border-red-500/30 bg-red-950/20 p-5 shadow-lg">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-lg" aria-hidden="true">🚨</span>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-red-400">
+        <section className="failures-spike-box">
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+            <span style={{ fontSize: "18px" }} aria-hidden="true">🚨</span>
+            <h2 style={{ fontSize: "14px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.08em", color: "#f87171", margin: 0 }}>
               Provider Failure Spike Alert
             </h2>
           </div>
-          <p className="text-xs text-red-200/80 mb-4">
+          <p style={{ fontSize: "12px", color: "#fca5a5", marginBottom: "14px" }}>
             The following services experienced an acute failure spike in the last 24h (&gt;2x their 7-day failure rate and &gt;15% failures with &ge;10 orders):
           </p>
 
-          <div className="space-y-2">
+          <div style={{ display: "grid", gap: "8px" }}>
             {data.spikes.map((spk) => (
               <div
                 key={spk.service_id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/20 bg-black/40 p-3 text-xs"
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  padding: "12px 14px",
+                  borderRadius: "10px",
+                  border: "1px solid rgba(239, 68, 68, 0.25)",
+                  background: "#160714",
+                  fontSize: "12px",
+                }}
               >
                 <div>
-                  <strong className="text-white text-sm">{spk.service_name}</strong>
-                  <span className="ml-2 text-white/50">({spk.platform_name})</span>
-                  <div className="mt-1 flex items-center gap-3 text-white/60">
-                    <span>Provider ID: <code className="text-purple-300 font-mono">{spk.provider_service_id || "None"}</code></span>
-                    <span>Primary Reason: <strong className="text-red-300">{spk.primary_reason || "unknown"}</strong></span>
+                  <strong style={{ color: "#fff", fontSize: "14px" }}>{spk.service_name}</strong>
+                  <span style={{ marginLeft: "8px", color: "#a99bb2" }}>({spk.platform_name})</span>
+                  <div style={{ marginTop: "4px", display: "flex", gap: "14px", color: "#a99bb2", fontSize: "11px" }}>
+                    <span>Provider ID: <code style={{ color: "#d883ff" }}>{spk.provider_service_id || "None"}</code></span>
+                    <span>Primary Reason: <strong style={{ color: "#fca5a5" }}>{spk.primary_reason || "unknown"}</strong></span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <span className="text-red-400 font-bold text-sm">{spk.rate_24h}% (24h)</span>
-                    <span className="text-white/40 block text-[11px]">vs {spk.rate_7d}% (7d)</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ color: "#f87171", fontWeight: "bold", fontSize: "14px" }}>{spk.rate_24h}% (24h)</span>
+                    <span style={{ display: "block", color: "#796a84", fontSize: "11px" }}>vs {spk.rate_7d}% (7d)</span>
                   </div>
                   <Link
                     href={`/admin/orders?fulfillment=FAILED&service_id=${spk.service_id}&window=24h`}
                     prefetch={false}
-                    className="rounded bg-red-600/80 hover:bg-red-500 text-white px-3 py-1.5 font-medium transition-colors min-h-[36px] flex items-center"
+                    className="admin-row-action"
+                    style={{ background: "#dc2626", color: "#fff", border: "0", padding: "6px 12px", borderRadius: "8px", fontWeight: "bold" }}
                   >
                     View {spk.failed_24h} Orders →
                   </Link>
@@ -126,36 +138,34 @@ export function FailuresViewClient({ data, activeWindow }: FailuresViewClientPro
         </section>
       )}
 
-      {/* 4. Breakdowns: Reasons (CSS Bars) & Platforms */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {/* 5. Breakdowns: Reasons & Platforms */}
+      <div className="failures-panels-grid">
         {/* Reasons Horizontal Bar Breakdown */}
-        <section className="rounded-xl border border-white/10 bg-white/5 p-5">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-white mb-4">
-            Failures by Reason
-          </h2>
+        <section className="failures-panel">
+          <div className="failures-panel-heading">
+            <h2>Failures by Reason</h2>
+          </div>
           {data.by_reason.length === 0 ? (
-            <p className="text-xs text-white/40 py-4 text-center">No failures recorded in this window.</p>
+            <p style={{ textAlign: "center", padding: "24px 0", color: "#796a84", fontSize: "13px" }}>No failures recorded in this window.</p>
           ) : (
-            <div className="space-y-3">
+            <div>
               {data.by_reason.map((r) => (
-                <div key={r.reason} className="space-y-1">
-                  <div className="flex justify-between text-xs">
+                <div key={r.reason} className="failures-bar-item">
+                  <div className="failures-bar-header">
                     <Link
                       href={`/admin/orders?fulfillment=FAILED&failure_reason=${r.reason}&window=${activeWindow}`}
                       prefetch={false}
-                      className="text-white/80 hover:text-white underline"
                     >
                       {r.reason}
                     </Link>
-                    <span className="text-white/60 font-mono">
+                    <span>
                       {r.count} ({r.percentage}%)
                     </span>
                   </div>
-                  {/* CSS Horizontal Progress Bar */}
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                  <div className="failures-bar-track">
                     <div
-                      className="h-full rounded-full bg-purple-500 transition-all duration-300"
-                      style={{ width: `${Math.min(100, Math.max(2, r.percentage))}%` }}
+                      className="failures-bar-fill"
+                      style={{ width: `${Math.min(100, Math.max(3, r.percentage))}%` }}
                     />
                   </div>
                 </div>
@@ -165,32 +175,34 @@ export function FailuresViewClient({ data, activeWindow }: FailuresViewClientPro
         </section>
 
         {/* Platforms Breakdown */}
-        <section className="rounded-xl border border-white/10 bg-white/5 p-5">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-white mb-4">
-            Failures by Platform
-          </h2>
+        <section className="failures-panel">
+          <div className="failures-panel-heading">
+            <h2>Failures by Platform</h2>
+          </div>
           {data.by_platform.length === 0 ? (
-            <p className="text-xs text-white/40 py-4 text-center">No platform activity recorded in this window.</p>
+            <p style={{ textAlign: "center", padding: "24px 0", color: "#796a84", fontSize: "13px" }}>No platform activity recorded in this window.</p>
           ) : (
-            <div className="space-y-3">
+            <div>
               {data.by_platform.map((p) => (
-                <div key={p.platform_id} className="space-y-1">
-                  <div className="flex justify-between text-xs">
+                <div key={p.platform_id} className="failures-bar-item">
+                  <div className="failures-bar-header">
                     <Link
                       href={`/admin/orders?fulfillment=FAILED&platform_id=${p.platform_id}&window=${activeWindow}`}
                       prefetch={false}
-                      className="text-white/80 hover:text-white underline font-medium"
                     >
                       {p.platform_name}
                     </Link>
-                    <span className="text-white/60 font-mono">
+                    <span>
                       {p.failed_orders} / {p.total_orders} ({p.failure_rate}%)
                     </span>
                   </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                  <div className="failures-bar-track">
                     <div
-                      className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-                      style={{ width: `${Math.min(100, Math.max(2, p.failure_rate))}%` }}
+                      className="failures-bar-fill"
+                      style={{
+                        width: `${Math.min(100, Math.max(3, p.failure_rate))}%`,
+                        background: "linear-gradient(90deg, #10b981, #34d399)",
+                      }}
                     />
                   </div>
                 </div>
@@ -200,75 +212,71 @@ export function FailuresViewClient({ data, activeWindow }: FailuresViewClientPro
         </section>
       </div>
 
-      {/* 5. By Service Table with Minimum Volume Filter */}
-      <section className="rounded-xl border border-white/10 bg-white/5 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+      {/* 6. By Service Table with Minimum Volume Filter */}
+      <section className="customers-panel">
+        <div className="customers-panel-heading">
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-white">Failures by Service</h2>
-            <p className="text-xs text-white/50">Sorted by failure rate descending.</p>
+            <p className="dashboard-kicker">SERVICES PERFORMANCE</p>
+            <h2>Failures by Service</h2>
           </div>
-
-          <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer select-none">
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "#c8b9d0", cursor: "pointer" }}>
             <input
               type="checkbox"
               checked={minVolumeFilter}
               onChange={(e) => setMinVolumeFilter(e.target.checked)}
-              className="rounded border-white/20 bg-black/40 text-purple-600 focus:ring-0"
+              style={{ accentColor: "#d883ff" }}
             />
             <span>Hide low-volume services (&lt;10 orders)</span>
           </label>
         </div>
 
         {displayedServices.length === 0 ? (
-          <div className="text-center py-8 text-xs text-white/40">
-            No services match the current volume filter in this period.
+          <div className="customers-empty">
+            <h3>No matching services</h3>
+            <p>No services match the current volume filter in this period.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-white/80">
-              <thead className="border-b border-white/10 text-white/50 font-semibold uppercase tracking-wider text-[10px]">
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table">
+              <thead>
                 <tr>
-                  <th className="py-2.5 px-3">Service</th>
-                  <th className="py-2.5 px-3">Platform</th>
-                  <th className="py-2.5 px-3">Provider ID</th>
-                  <th className="py-2.5 px-3 text-right">Orders</th>
-                  <th className="py-2.5 px-3 text-right">Failed</th>
-                  <th className="py-2.5 px-3 text-right">Failure Rate</th>
-                  <th className="py-2.5 px-3">Top Reason</th>
-                  <th className="py-2.5 px-3 text-right">Action</th>
+                  <th>Service</th>
+                  <th>Platform</th>
+                  <th>Provider ID</th>
+                  <th style={{ textAlign: "right" }}>Orders</th>
+                  <th style={{ textAlign: "right" }}>Failed</th>
+                  <th style={{ textAlign: "right" }}>Failure Rate</th>
+                  <th>Top Reason</th>
+                  <th style={{ textAlign: "right" }}>Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 font-mono">
+              <tbody>
                 {displayedServices.map((svc) => (
-                  <tr key={svc.service_id} className="hover:bg-white/[0.02]">
-                    <td className="py-2.5 px-3 font-sans font-medium text-white max-w-[200px] truncate">
-                      {svc.service_name}
+                  <tr key={svc.service_id}>
+                    <td>
+                      <strong style={{ color: "#fff" }}>{svc.service_name}</strong>
                     </td>
-                    <td className="py-2.5 px-3 font-sans text-white/60">{svc.platform_name}</td>
-                    <td className="py-2.5 px-3 text-purple-300">{svc.provider_service_id || "—"}</td>
-                    <td className="py-2.5 px-3 text-right">{svc.total_orders}</td>
-                    <td className="py-2.5 px-3 text-right text-red-400 font-bold">{svc.failed_orders}</td>
-                    <td className="py-2.5 px-3 text-right">
+                    <td>{svc.platform_name}</td>
+                    <td><code style={{ color: "#d883ff" }}>{svc.provider_service_id || "—"}</code></td>
+                    <td style={{ textAlign: "right" }}>{svc.total_orders}</td>
+                    <td style={{ textAlign: "right", color: "#f87171", fontWeight: "bold" }}>{svc.failed_orders}</td>
+                    <td style={{ textAlign: "right" }}>
                       <span
-                        className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${
-                          svc.failure_rate > 20
-                            ? "bg-red-500/20 text-red-300"
-                            : svc.failure_rate > 10
-                            ? "bg-amber-500/20 text-amber-300"
-                            : "bg-white/10 text-white/80"
-                        }`}
+                        className="admin-status"
+                        style={{
+                          background: svc.failure_rate > 20 ? "rgba(239,68,68,0.2)" : svc.failure_rate > 10 ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.1)",
+                          color: svc.failure_rate > 20 ? "#fca5a5" : svc.failure_rate > 10 ? "#fde68a" : "#e2e8f0",
+                        }}
                       >
                         {svc.failure_rate}%
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 font-sans text-white/50 text-[11px]">
-                      {svc.primary_failure_reason || "—"}
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
+                    <td>{svc.primary_failure_reason || "—"}</td>
+                    <td style={{ textAlign: "right" }}>
                       <Link
                         href={`/admin/orders?fulfillment=FAILED&service_id=${svc.service_id}&window=${activeWindow}`}
                         prefetch={false}
-                        className="text-purple-400 hover:text-purple-300 underline font-sans text-[11px]"
+                        className="admin-row-action"
                       >
                         View Orders →
                       </Link>

@@ -52,10 +52,10 @@ export function AdminSidebar() {
               key={href}
               title={collapsed ? label : undefined}
             >
-              <span className="sidebar-icon" aria-hidden="true">
+              <span className="sidebar-item-icon" aria-hidden="true">
                 {icon}
               </span>
-              <span className="sidebar-label">{label}</span>
+              <span className="sidebar-item-label">{label}</span>
             </Link>
           );
         })}

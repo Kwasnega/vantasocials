@@ -27,9 +27,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     );
   }
   return (
-    <main className="dashboard-shell">
+    <main className="dashboard-shell" style={{ display: "grid", gridTemplateColumns: "minmax(0, 250px) minmax(0, 1fr)", minHeight: "100vh", width: "100%", maxWidth: "100vw", overflowX: "clip" }}>
       <AdminSidebar />
-      <section className="dashboard-content">
+      <section className="dashboard-content" style={{ minWidth: 0, width: "100%", maxWidth: "100%", boxSizing: "border-box" }}>
         <ProviderBalanceBanner />
         {children}
       </section>

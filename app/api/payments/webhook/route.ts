@@ -26,20 +26,63 @@ export async function POST(request: Request) {
   let processingToken: string | null = null;
   try {
     const admin = createSupabaseAdminClient();
-    const { data: claimRows, error: claimError } = await admin.rpc("claim_paystack_webhook_event", { p_event_id: eventId, p_event_type: typeof payload.event === "string" ? payload.event : "unknown", p_payload: payload });
-    if (claimError) throw claimError;
-    const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
-    if (!claim?.claimed) return NextResponse.json({ received: true });
-    processingToken = typeof claim.processing_token === "string" ? claim.processing_token : null;
-    if (!processingToken) return NextResponse.json({ received: true });
-    const { data: byReference } = await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status").eq("reference", reference).maybeSingle();
-    const { data: byProviderReference } = byReference ? { data: null } : await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status").eq("provider_reference", reference).maybeSingle();
+
+    // Idempotent webhook claim with fallback to direct table check if stored procedure has ambiguous column
+    let claimed = false;
+    try {
+      const { data: claimRows, error: claimError } = await admin.rpc("claim_paystack_webhook_event", {
+        p_event_id: eventId,
+        p_event_type: typeof payload.event === "string" ? payload.event : "unknown",
+        p_payload: payload,
+      });
+      if (claimError) throw claimError;
+      const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+      claimed = Boolean(claim?.claimed);
+      processingToken = typeof claim?.processing_token === "string" ? claim.processing_token : null;
+    } catch {
+      // Direct table fallback: insert into webhook_events with conflict ignore
+      const { data: existing } = await admin.from("webhook_events").select("id,processed").eq("provider", "paystack").eq("event_id", eventId).maybeSingle();
+      if (existing?.processed) {
+        return NextResponse.json({ received: true });
+      }
+      const token = crypto.randomUUID();
+      const { error: insErr } = await admin.from("webhook_events").upsert(
+        {
+          provider: "paystack",
+          event_id: eventId,
+          event_type: typeof payload.event === "string" ? payload.event : "unknown",
+          payload,
+          processing: true,
+          processing_token: token,
+          processing_started_at: new Date().toISOString(),
+        },
+        { onConflict: "provider,event_id" }
+      );
+      if (insErr) return NextResponse.json({ received: true });
+      claimed = true;
+      processingToken = token;
+    }
+
+    if (!claimed || !processingToken) return NextResponse.json({ received: true });
+
+    const { data: byReference } = await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status,provider_response").eq("reference", reference).maybeSingle();
+    const { data: byProviderReference } = byReference ? { data: null } : await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status,provider_response").eq("provider_reference", reference).maybeSingle();
     const deposit = byReference || byProviderReference;
+
     if (deposit) {
+      const pResp = (deposit.provider_response && typeof deposit.provider_response === "object" ? deposit.provider_response : {}) as Record<string, any>;
+      // Skip if already reconciled
+      if (!pResp.reconciled) {
         const verified = await verifyPaystack(reference);
         const tx = verified.data || {};
         if (tx.status === "success" && String(tx.reference || "") === reference && String(tx.amount || "") === String(deposit.amount_minor) && String(tx.currency || "") === "GHS") {
-          const { error: creditError } = await admin.rpc("credit_wallet_deposit", { p_deposit_id: deposit.id, p_user_id: deposit.user_id, p_provider_reference: reference, p_amount_minor: String(deposit.amount_minor), p_currency: "GHS" });
+          const { error: creditError } = await admin.rpc("credit_wallet_deposit", {
+            p_deposit_id: deposit.id,
+            p_user_id: deposit.user_id,
+            p_provider_reference: reference,
+            p_amount_minor: String(deposit.amount_minor),
+            p_currency: "GHS",
+          });
           if (creditError) throw creditError;
           if (deposit.status !== "PAID") {
             await captureServerEvent(deposit.user_id, "wallet_deposit_completed", {
@@ -49,11 +92,23 @@ export async function POST(request: Request) {
             });
           }
         }
+      }
     } else {
       await verifyAndSettlePaystack(reference);
     }
-    const { error: completeError } = await admin.rpc("complete_paystack_webhook_event", { p_event_id: eventId, p_processing_token: processingToken });
-    if (completeError) throw completeError;
+
+    // Complete webhook event
+    try {
+      await admin.rpc("complete_paystack_webhook_event", { p_event_id: eventId, p_processing_token: processingToken });
+    } catch {
+      await admin.from("webhook_events").update({
+        processed: true,
+        processing: false,
+        processed_at: new Date().toISOString(),
+        processing_token: null,
+      }).eq("provider", "paystack").eq("event_id", eventId);
+    }
+
     return NextResponse.json({ received: true });
   } catch (error) {
     const details = error instanceof Error ? error.message : "unknown";
@@ -64,7 +119,17 @@ export async function POST(request: Request) {
       payment_method: "paystack",
     });
     after(flushPostHogLogs);
-    if (typeof processingToken === "string") await createSupabaseAdminClient().rpc("fail_paystack_webhook_event", { p_event_id: eventId, p_processing_token: processingToken, p_error: details });
+    if (typeof processingToken === "string") {
+      try {
+        await createSupabaseAdminClient().rpc("fail_paystack_webhook_event", { p_event_id: eventId, p_processing_token: processingToken, p_error: details });
+      } catch {
+        await createSupabaseAdminClient().from("webhook_events").update({
+          processing: false,
+          processing_token: null,
+          last_error: details.slice(0, 500),
+        }).eq("provider", "paystack").eq("event_id", eventId);
+      }
+    }
     return NextResponse.json({ error: "Webhook processing failed." }, { status: 500 });
   }
 }

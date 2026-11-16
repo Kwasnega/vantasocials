@@ -14,9 +14,19 @@ export async function POST(request: Request) {
   if (!reference) return NextResponse.json({ error: "reference is required." }, { status: 400 });
   try {
     const admin = createSupabaseAdminClient();
-    const { data: deposit, error } = await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,provider_reference,status").eq("reference", reference).maybeSingle();
+    const { data: deposit, error } = await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,provider_reference,status,provider_response").eq("reference", reference).maybeSingle();
     if (error) throw error;
     if (!deposit || deposit.user_id !== user.id) return NextResponse.json({ error: "Deposit not found." }, { status: 404 });
+
+    const pResp = (deposit.provider_response && typeof deposit.provider_response === "object" ? deposit.provider_response : {}) as Record<string, any>;
+    if (pResp.reconciled === true) {
+      return NextResponse.json({
+        status: "RECONCILED",
+        reference,
+        message: "Deposit was already compensated manually and marked as reconciled.",
+      });
+    }
+
     if (deposit.status === "PAID" && deposit.provider_reference) return NextResponse.json({ status: "PAID", reference });
     const verified = await verifyPaystack(reference);
     const tx = verified.data || {};

@@ -15,10 +15,10 @@ const DEFAULT_LIMITS: DepositLimits = {
   formattedMax: "10,000.00",
 };
 
-export default function WalletDepositForm() {
+export default function WalletDepositForm({ initialAmount, returnTo }: { initialAmount?: string; returnTo?: string }) {
   const [limits, setLimits] = useState<DepositLimits>(DEFAULT_LIMITS);
-  const [amount, setAmount] = useState(DEFAULT_LIMITS.formattedMin);
-  const [hasEdited, setHasEdited] = useState(false);
+  const [amount, setAmount] = useState(initialAmount || DEFAULT_LIMITS.formattedMin);
+  const [hasEdited, setHasEdited] = useState(Boolean(initialAmount));
   const [state, setState] = useState<"idle" | "loading" | "redirecting" | "error">("idle");
   const [message, setMessage] = useState("");
   const idempotencyKey = useRef(crypto.randomUUID());
@@ -39,8 +39,9 @@ export default function WalletDepositForm() {
             formattedMax: data.formattedMax ?? "10,000.00",
           };
           setLimits(loaded);
-          // Set initial amount only if user hasn't started typing
+          // Set initial amount only if user hasn't specified initialAmount and hasn't started typing
           setAmount((prev) => {
+            if (initialAmount) return initialAmount;
             if (!hasEdited || prev === DEFAULT_LIMITS.formattedMin) {
               return loaded.formattedMin;
             }
@@ -81,7 +82,7 @@ export default function WalletDepositForm() {
           "content-type": "application/json",
           "Idempotency-Key": idempotencyKey.current,
         },
-        body: JSON.stringify({ amount: amount.trim() }),
+        body: JSON.stringify({ amount: amount.trim(), return_to: returnTo || undefined }),
       });
       const data = await response.json();
       if (data.reconciliation_required) {

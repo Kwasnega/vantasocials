@@ -30,39 +30,7 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
     details: { customer_id: customerId, customer_email: customer.email },
   });
 
-  // 2. Fetch financial summary via atomic RPC or fallback calculation
-  let summary: {
-    wallet_balance_ghs?: number;
-    wallet_currency?: string;
-    total_deposited_ghs?: number;
-    successful_deposits_count?: number;
-    first_deposit_at?: string | null;
-    last_deposit_at?: string | null;
-    total_spent_ghs?: number;
-    total_refunded_ghs?: number;
-    refunds_count?: number;
-    net_spent_ghs?: number;
-    ledger_derived_balance_minor?: number;
-    projected_balance_minor?: number;
-    balance_matches?: boolean;
-    total_orders_count?: number;
-    completed_orders_count?: number;
-    failed_orders_count?: number;
-    open_complaints_count?: number;
-  } | null = null;
-
-  try {
-    const { data: summaryRows, error: summaryErr } = await db.rpc("get_customer_financial_summary", {
-      p_customer_id: customerId,
-    });
-    if (!summaryErr && summaryRows) {
-      summary = Array.isArray(summaryRows) ? summaryRows[0] : summaryRows;
-    }
-  } catch (e) {
-    console.warn("[AdminCustomerDetailPage] RPC exception:", e);
-  }
-
-  // 3. Parallel fetch of tabs data
+  // 2. Fetch financial records
   const [
     { data: walletData },
     { data: orders },
@@ -70,55 +38,89 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
     { data: walletTx },
     { data: notes },
     { data: statusHist },
+    { data: adminsList },
   ] = await Promise.all([
     db.from("wallets").select("id,balance_minor,currency").eq("user_id", customerId).maybeSingle(),
     db.from("orders").select("id,public_order_id,quantity,total,currency,status,payment_status,fulfillment_status,failure_reason,refund_status,target_value,created_at,services(name,platforms(name))").eq("user_id", customerId).order("created_at", { ascending: false }).limit(100),
-    db.from("wallet_deposit_payments").select("id,reference,amount_minor,currency,status,paid_at,created_at").eq("user_id", customerId).order("created_at", { ascending: false }).limit(100),
-    db.from("wallet_transactions").select("id,type,direction,status,amount_minor,currency,reference,created_at,wallets!inner(user_id)").eq("wallets.user_id", customerId).order("created_at", { ascending: false }).limit(100),
+    db.from("wallet_deposit_payments").select("id,reference,amount_minor,currency,status,provider_response,paid_at,created_at").eq("user_id", customerId).order("created_at", { ascending: false }).limit(100),
+    db.from("wallet_transactions").select("id,type,direction,status,amount_minor,currency,reference,order_id,metadata,created_at,wallets!inner(user_id)").eq("wallets.user_id", customerId).order("created_at", { ascending: false }).limit(100),
     db.from("customer_notes").select("id,category,status,body,order_id,created_at").eq("customer_id", customerId).order("created_at", { ascending: false }).limit(100),
     db.from("customer_status_history").select("id,old_status,new_status,reason,created_at").eq("customer_id", customerId).order("created_at", { ascending: false }).limit(50),
+    db.from("profiles").select("id,email").eq("is_admin", true),
   ]);
 
-  // If RPC failed or was unauthorized, calculate summary values directly from verified data
-  if (!summary) {
-    const successfulDeposits = (deposits || []).filter(
-      (d) => d.status === "COMPLETED" || d.status === "PAID"
-    );
-    const totalDepositedMinor = successfulDeposits.reduce((acc, d) => acc + Number(d.amount_minor || 0), 0);
+  const adminEmailMap = new Map((adminsList || []).map((a) => [a.id, a.email]));
 
-    const paidOrdersList = (orders || []).filter((o) => o.payment_status === "PAID");
-    const totalSpent = paidOrdersList.reduce((acc, o) => acc + Number(o.total || 0), 0);
+  // Ledger breakdown & reconciliation math (all values in GHS)
+  let depositsCreditedGhs = 0;
+  let manualCreditsGhs = 0;
+  let refundsGhs = 0;
+  let spentGhs = 0;
 
-    const refundedOrdersList = (orders || []).filter((o) => o.refund_status === "REFUNDED");
-    const totalRefunded = refundedOrdersList.reduce((acc, o) => acc + Number(o.total || 0), 0);
+  (walletTx || []).forEach((t) => {
+    if (t.status !== "COMPLETED") return;
+    const amt = Number(t.amount_minor || 0) / 100;
+    if (t.type === "DEPOSIT" && t.direction === "CREDIT") {
+      depositsCreditedGhs += amt;
+    } else if (t.type === "MANUAL_ADJUSTMENT" && t.direction === "CREDIT") {
+      manualCreditsGhs += amt;
+    } else if (t.type === "REFUND" && t.direction === "CREDIT") {
+      refundsGhs += amt;
+    } else if (t.type === "ORDER_DEBIT" && t.direction === "DEBIT") {
+      spentGhs += amt;
+    } else if (t.direction === "CREDIT") {
+      // other credits
+      depositsCreditedGhs += amt;
+    } else if (t.direction === "DEBIT") {
+      spentGhs += amt;
+    }
+  });
 
-    const walletBalanceMinor = Number(walletData?.balance_minor ?? 0);
+  const walletBalanceMinor = Number(walletData?.balance_minor ?? 0);
+  const walletBalanceGhs = walletBalanceMinor / 100;
 
-    // Compute ledger-derived balance
-    const ledgerBalanceMinor = (walletTx || []).reduce((acc, t) => {
-      if (t.status !== "COMPLETED") return acc;
-      const amt = Number(t.amount_minor || 0);
-      return t.direction === "CREDIT" ? acc + amt : acc - amt;
-    }, 0);
+  // Formula: Deposits + Manual credits + Refunds - Spent = Expected Balance
+  const expectedBalanceGhs = Number(
+    (depositsCreditedGhs + manualCreditsGhs + refundsGhs - spentGhs).toFixed(2)
+  );
+  const balanceMatches = Math.abs(expectedBalanceGhs - walletBalanceGhs) < 0.01;
 
-    summary = {
-      wallet_balance_ghs: walletBalanceMinor / 100,
-      wallet_currency: walletData?.currency || "GHS",
-      total_deposited_ghs: totalDepositedMinor / 100,
-      successful_deposits_count: successfulDeposits.length,
-      total_spent_ghs: totalSpent - totalRefunded,
-      total_refunded_ghs: totalRefunded,
-      refunds_count: refundedOrdersList.length,
-      net_spent_ghs: totalSpent - totalRefunded,
-      ledger_derived_balance_minor: ledgerBalanceMinor,
-      projected_balance_minor: walletBalanceMinor,
-      balance_matches: ledgerBalanceMinor === walletBalanceMinor,
-      total_orders_count: (orders || []).length,
-      completed_orders_count: (orders || []).filter((o) => o.fulfillment_status === "COMPLETED").length,
-      failed_orders_count: (orders || []).filter((o) => o.fulfillment_status === "FAILED").length,
-      open_complaints_count: (notes || []).filter((n) => n.status === "open" && n.category === "complaint").length,
-    };
-  }
+  // Uncredited deposits analysis (older than 30 mins)
+  const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
+  const uncreditedDeposits = (deposits || []).filter((d) => d.status !== "PAID");
+  const uncreditedDepositsCount = uncreditedDeposits.length;
+  const uncreditedDepositsGhs = uncreditedDeposits.reduce(
+    (acc, d) => acc + Number(d.amount_minor || 0) / 100,
+    0
+  );
+
+  const staleUncreditedDeposits = uncreditedDeposits.filter(
+    (d) => new Date(d.created_at) < thirtyMinsAgo
+  );
+
+  // Unpaid orders analysis
+  const unpaidOrders = (orders || []).filter((o) => o.payment_status !== "PAID");
+  const unpaidOrdersCount = unpaidOrders.length;
+  const unpaidOrdersGhs = unpaidOrders.reduce((acc, o) => acc + Number(o.total || 0), 0);
+
+  // Needs Attention criteria:
+  // 1. Non-final deposits older than 30 minutes
+  // 2. Unpaid orders exist
+  // 3. Balance comes mostly or entirely from manual credits with no credited deposits
+  const balanceIsMostlyManual =
+    depositsCreditedGhs === 0 && manualCreditsGhs > 0 && walletBalanceGhs > 0;
+  const needsAttention =
+    staleUncreditedDeposits.length > 0 || unpaidOrdersCount > 0 || balanceIsMostlyManual || !balanceMatches;
+
+  // Map ledger entries to deposit references for easy lookup
+  const depositCreditTxMap = new Map<string, string>();
+  (walletTx || []).forEach((t) => {
+    if (t.type === "DEPOSIT" && t.direction === "CREDIT") {
+      const meta = t.metadata as { deposit_id?: string; reference?: string } | null;
+      if (meta?.deposit_id) depositCreditTxMap.set(meta.deposit_id, t.id);
+      if (meta?.reference) depositCreditTxMap.set(meta.reference, t.id);
+    }
+  });
 
   // Formatted orders
   const formattedOrders = (orders || []).map((o) => {
@@ -142,26 +144,45 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
   });
 
   // Formatted deposits
-  const formattedDeposits = (deposits || []).map((d) => ({
-    id: d.id,
-    reference: d.reference,
-    amount: Number(d.amount_minor || 0) / 100,
-    currency: d.currency,
-    status: d.status,
-    paidAt: d.paid_at,
-    createdAt: d.created_at,
-  }));
+  const formattedDeposits = (deposits || []).map((d) => {
+    const pResp = (d.provider_response && typeof d.provider_response === "object" ? d.provider_response : {}) as Record<string, any>;
+    const creditedLedgerTxId = depositCreditTxMap.get(d.id) || depositCreditTxMap.get(d.reference) || null;
+    return {
+      id: d.id,
+      reference: d.reference,
+      amount: Number(d.amount_minor || 0) / 100,
+      currency: d.currency,
+      status: d.status,
+      paidAt: d.paid_at,
+      createdAt: d.created_at,
+      creditedToWallet: d.status === "PAID" || Boolean(creditedLedgerTxId),
+      creditedLedgerTxId,
+      lastCheck: pResp.last_check || null,
+      isReconciled: Boolean(pResp.reconciled),
+      reconciliationNote: pResp.reconciliation_note || null,
+      linkedTransactionId: pResp.linked_transaction_id || null,
+    };
+  });
 
   // Formatted ledger
-  const formattedLedger = (walletTx || []).map((t) => ({
-    id: t.id,
-    type: t.type,
-    direction: t.direction,
-    amount: Number(t.amount_minor || 0) / 100,
-    currency: t.currency,
-    reference: t.reference,
-    createdAt: t.created_at,
-  }));
+  const formattedLedger = (walletTx || []).map((t) => {
+    const meta = (t.metadata && typeof t.metadata === "object" ? t.metadata : {}) as Record<string, any>;
+    const adminEmail = meta.admin_id ? adminEmailMap.get(meta.admin_id) || meta.admin_id : null;
+    return {
+      id: t.id,
+      type: t.type,
+      direction: t.direction,
+      amount: Number(t.amount_minor || 0) / 100,
+      currency: t.currency,
+      reference: t.reference,
+      createdAt: t.created_at,
+      category: meta.category || null,
+      internalNote: meta.internal_note || meta.note || null,
+      adminEmail,
+      linkedOrderId: t.order_id || meta.order_id || null,
+      linkedDepositId: meta.deposit_id || null,
+    };
+  });
 
   // Notes with optional linked order check
   const orderMap = new Map((orders || []).map((o) => [o.id, o]));
@@ -187,7 +208,7 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
     };
   });
 
-  // Unified activity timeline built strictly from persisted rows
+  // Unified activity timeline
   const rawActivity: Array<{ id: string; type: string; title: string; description: string; timestamp: string }> = [];
 
   rawActivity.push({
@@ -199,13 +220,44 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
   });
 
   (deposits || []).forEach((d) => {
-    if (d.status === "COMPLETED") {
+    const pResp = (d.provider_response && typeof d.provider_response === "object" ? d.provider_response : {}) as Record<string, any>;
+    rawActivity.push({
+      id: `dep-init-${d.id}`,
+      type: "deposit_init",
+      title: `Deposit Initiated (GHS ${(Number(d.amount_minor) / 100).toFixed(2)})`,
+      description: `Paystack checkout generated with reference ${d.reference}. Status: ${d.status}`,
+      timestamp: d.created_at,
+    });
+    if (d.status === "PAID") {
       rawActivity.push({
-        id: `dep-${d.id}`,
-        type: "deposit",
-        title: `Deposit Credited (GHS ${(Number(d.amount_minor) / 100).toFixed(2)})`,
-        description: `Paystack deposit reference ${d.reference} was completed.`,
+        id: `dep-paid-${d.id}`,
+        type: "deposit_paid",
+        title: `Deposit Confirmed & Credited (GHS ${(Number(d.amount_minor) / 100).toFixed(2)})`,
+        description: `Paystack payment confirmed and credited to wallet.`,
         timestamp: d.paid_at || d.created_at,
+      });
+    }
+    if (pResp.reconciled) {
+      rawActivity.push({
+        id: `dep-rec-${d.id}`,
+        type: "deposit_reconciled",
+        title: `Deposit Marked as Reconciled (${d.reference})`,
+        description: `Admin marked as compensated: "${pResp.reconciliation_note || "Reconciled"}"`,
+        timestamp: pResp.reconciled_at || d.created_at,
+      });
+    }
+  });
+
+  (walletTx || []).forEach((t) => {
+    if (t.type === "MANUAL_ADJUSTMENT") {
+      const meta = (t.metadata && typeof t.metadata === "object" ? t.metadata : {}) as Record<string, any>;
+      const adminEmail = meta.admin_id ? adminEmailMap.get(meta.admin_id) || meta.admin_id : "Admin";
+      rawActivity.push({
+        id: `ledger-adj-${t.id}`,
+        type: "manual_adjustment",
+        title: `Manual Balance Adjustment (${t.direction === "CREDIT" ? "+" : "-"}GHS ${(Number(t.amount_minor) / 100).toFixed(2)})`,
+        description: `Performed by ${adminEmail}. Category: ${meta.category || "manual"}. Note: "${meta.internal_note || "None"}"`,
+        timestamp: t.created_at,
       });
     }
   });
@@ -214,8 +266,8 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
     rawActivity.push({
       id: `ord-${o.id}`,
       type: "order_created",
-      title: `Order Placed (${o.public_order_id})`,
-      description: `Order for ${o.quantity} units (Total GHS ${Number(o.total).toFixed(2)}). Status: ${o.fulfillment_status}`,
+      title: `Order Created (${o.public_order_id})`,
+      description: `Order for ${o.quantity} units (Total GHS ${Number(o.total).toFixed(2)}). Payment: ${o.payment_status}, Fulfillment: ${o.fulfillment_status}`,
       timestamp: o.created_at,
     });
     if (o.refund_status === "REFUNDED") {
@@ -224,7 +276,7 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
         type: "refund",
         title: `Order Refunded (${o.public_order_id})`,
         description: `Refund credited back to customer wallet.`,
-        timestamp: o.created_at, // chronological point
+        timestamp: o.created_at,
       });
     }
   });
@@ -241,48 +293,126 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
 
   rawActivity.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  const walletBalanceGhs = Number(summary?.wallet_balance_ghs ?? 0);
-  const totalDepositedGhs = Number(summary?.total_deposited_ghs ?? 0);
-  const totalSpentGhs = Number(summary?.total_spent_ghs ?? 0);
-  const totalRefundedGhs = Number(summary?.total_refunded_ghs ?? 0);
-  const balanceMatches = Boolean(summary?.balance_matches ?? true);
-  const ledgerDerivedGhs = Number(summary?.ledger_derived_balance_minor ?? 0) / 100;
-
   return (
-    <div className="admin-orders-page orders-redesign" style={{ maxWidth: "1200px", margin: "0 auto", padding: "20px" }}>
+    <div className="admin-orders-page orders-redesign" style={{ maxWidth: "1280px", margin: "0 auto", padding: "20px" }}>
+      {/* Needs-Attention Banner */}
+      {needsAttention && (
+        <section
+          style={{
+            marginBottom: "24px",
+            padding: "16px 20px",
+            borderRadius: "10px",
+            backgroundColor: "rgba(245, 158, 11, 0.12)",
+            border: "1px solid rgba(245, 158, 11, 0.35)",
+            color: "#fef3c7",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "15px", color: "#fbbf24", marginBottom: "8px" }}>
+            <span>⚠️</span> Needs Attention
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "13px" }}>
+            {staleUncreditedDeposits.length > 0 && (
+              <div>
+                • <strong>{staleUncreditedDeposits.length} uncredited deposit(s)</strong> older than 30 minutes totaling <strong>GHS {uncreditedDepositsGhs.toFixed(2)}</strong> (check Deposits tab to verify with Paystack or reconcile).
+              </div>
+            )}
+            {unpaidOrdersCount > 0 && (
+              <div>
+                • <strong>{unpaidOrdersCount} unpaid order(s)</strong> totaling <strong>GHS {unpaidOrdersGhs.toFixed(2)}</strong>.
+              </div>
+            )}
+            {balanceIsMostlyManual && (
+              <div>
+                • <strong>Wallet balance is entirely from manual credits:</strong> Customer has GHS {walletBalanceGhs.toFixed(2)} balance from manual adjustments with 0 credited deposits.
+              </div>
+            )}
+            {!balanceMatches && (
+              <div style={{ color: "#fca5a5" }}>
+                • <strong>Reconciliation Mismatch:</strong> Expected ledger balance does not equal current wallet balance!
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* Financial Summary Cards */}
-      <section className="dashboard-grid" style={{ marginBottom: "24px" }}>
+      <section className="dashboard-grid" style={{ marginBottom: "16px" }}>
+        <article className="dashboard-card">
+          <span>Deposits Credited</span>
+          <strong style={{ fontSize: "20px", color: "#34d399" }}>
+            GHS {depositsCreditedGhs.toFixed(2)}
+          </strong>
+          <small>{(deposits || []).filter((d) => d.status === "PAID").length} verified deposits</small>
+        </article>
+
+        <article className="dashboard-card">
+          <span>Manual Credits</span>
+          <strong style={{ fontSize: "20px", color: "#d883ff" }}>
+            GHS {manualCreditsGhs.toFixed(2)}
+          </strong>
+          <small>Admin adjustments</small>
+        </article>
+
+        <article className="dashboard-card">
+          <span>Refunds</span>
+          <strong style={{ color: "#c084fc", fontSize: "20px" }}>
+            GHS {refundsGhs.toFixed(2)}
+          </strong>
+          <small>Credited back to wallet</small>
+        </article>
+
+        <article className="dashboard-card">
+          <span>Spent (Paid Orders)</span>
+          <strong style={{ fontSize: "20px", color: "#f87171" }}>
+            GHS {spentGhs.toFixed(2)}
+          </strong>
+          <small>Deducted from wallet</small>
+        </article>
+
         <article className="dashboard-card">
           <span>Wallet Balance</span>
-          <strong style={{ color: "#48bb78", fontSize: "22px" }}>
+          <strong style={{ fontSize: "20px", color: "#60a5fa" }}>
             GHS {walletBalanceGhs.toFixed(2)}
           </strong>
-          <small>{balanceMatches ? "✓ Ledger matches" : "⚠️ Ledger mismatch!"}</small>
+          <small>{balanceMatches ? "✓ Ledger matches" : "⚠️ Mismatch detected"}</small>
         </article>
+      </section>
 
-        <article className="dashboard-card">
-          <span>Total Deposited</span>
-          <strong style={{ fontSize: "22px" }}>
-            GHS {totalDepositedGhs.toFixed(2)}
-          </strong>
-          <small>{summary?.successful_deposits_count ?? 0} successful deposits</small>
-        </article>
+      {/* One-line Reconciliation & Plain Language Insights */}
+      <section
+        style={{
+          padding: "12px 16px",
+          backgroundColor: "rgba(255, 255, 255, 0.03)",
+          borderRadius: "8px",
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          marginBottom: "24px",
+          fontSize: "13px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+          <div>
+            <span style={{ color: "rgba(255,255,255,0.6)" }}>Reconciliation: </span>
+            <code>
+              Deposits (GHS {depositsCreditedGhs.toFixed(2)}) + Manual (GHS {manualCreditsGhs.toFixed(2)}) + Refunds (GHS {refundsGhs.toFixed(2)}) - Spent (GHS {spentGhs.toFixed(2)}) = GHS {expectedBalanceGhs.toFixed(2)}
+            </code>
+          </div>
+          <div>
+            {balanceMatches ? (
+              <span style={{ color: "#34d399", fontWeight: 600 }}>✓ Formula matches current balance</span>
+            ) : (
+              <span style={{ color: "#f87171", fontWeight: 700 }}>⚠️ MISMATCH (Diff: GHS {(walletBalanceGhs - expectedBalanceGhs).toFixed(2)})</span>
+            )}
+          </div>
+        </div>
 
-        <article className="dashboard-card">
-          <span>Total Spent</span>
-          <strong style={{ fontSize: "22px" }}>
-            GHS {totalSpentGhs.toFixed(2)}
-          </strong>
-          <small>Net of refunded orders</small>
-        </article>
-
-        <article className="dashboard-card">
-          <span>Total Refunded</span>
-          <strong style={{ color: "#c084fc", fontSize: "22px" }}>
-            GHS {totalRefundedGhs.toFixed(2)}
-          </strong>
-          <small>{summary?.refunds_count ?? 0} refunded orders</small>
-        </article>
+        <div style={{ display: "flex", gap: "24px", marginTop: "10px", color: "rgba(255,255,255,0.75)", fontSize: "12px" }}>
+          <div>
+            <strong>Deposits not credited:</strong> {uncreditedDepositsCount} (GHS {uncreditedDepositsGhs.toFixed(2)})
+          </div>
+          <div>
+            <strong>Unpaid orders:</strong> {unpaidOrdersCount} (GHS {unpaidOrdersGhs.toFixed(2)})
+          </div>
+        </div>
       </section>
 
       {/* Tabs */}
@@ -296,14 +426,17 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
         ledger={formattedLedger}
         notes={formattedNotes}
         activity={rawActivity}
-        ledgerSumGhs={ledgerDerivedGhs}
+        ledgerSumGhs={expectedBalanceGhs}
         currentWalletBalanceGhs={walletBalanceGhs}
         balanceMatches={balanceMatches}
       />
 
-      <div style={{ marginTop: "30px" }}>
-        <Link href="/admin/customers" style={{ color: "rgba(255,255,255,0.6)", textDecoration: "none" }}>
+      <div style={{ marginTop: "30px", display: "flex", gap: "20px" }}>
+        <Link href="/admin/customers" style={{ color: "rgba(255,255,255,0.6)", textDecoration: "none", fontSize: "13px" }}>
           ← Back to customers
+        </Link>
+        <Link href="/admin/wallet/stuck-deposits" style={{ color: "#a5b4fc", textDecoration: "none", fontSize: "13px" }}>
+          Go to Stuck Deposits Reconciliation Tool →
         </Link>
       </div>
     </div>

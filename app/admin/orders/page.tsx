@@ -4,13 +4,11 @@ import { escapePostgrestSearchTerm } from "../../../lib/admin/order-list";
 import { createSupabaseAdminClient } from "../../../lib/supabase/server";
 import { AdminEmptyState, AdminQueryError } from "../AdminDataState";
 import { AdminFilterBar } from "../../../components/admin/AdminFilterBar";
+import { AdminOrdersTableResponsive } from "../../../components/admin/AdminOrdersTableResponsive";
 import { parseOrderCursor } from "../../../lib/admin/cursor-validation";
 import type { OrderFailureReason } from "../../../lib/fulfillment/failure-classifier";
-import { AdminOrderRetryAction } from "../../../components/admin/AdminOrderRetryAction";
 import { AdminBulkRetryAction } from "../../../components/admin/AdminBulkRetryAction";
-import { AdminOrderRefundButton } from "../../../components/admin/AdminOrderRefundButton";
 import { AdminBulkRefundAction } from "../../../components/admin/AdminBulkRefundAction";
-import { getRetryEligibility } from "../../../lib/fulfillment/retry-eligibility";
 import { getRefundEligibility } from "../../../lib/orders/refund-eligibility";
 
 /** Build an orders page href including a cursor (for keyset pagination) */
@@ -40,86 +38,6 @@ const FAILURE_REASON_BADGE: Record<OrderFailureReason, { label: string; color: s
   internal_error:              { label: "Internal Error",       color: "#2b6cb0" },
   unknown:                     { label: "Unknown",              color: "#718096" },
 };
-
-/** Compact stage indicator mapping for quick visual lifecycle status */
-const FULFILLMENT_STAGE_CONFIG: Record<
-  string,
-  { label: string; step: number; total: number; color: string }
-> = {
-  NOT_STARTED: { label: "Created", step: 1, total: 5, color: "#6b7280" },
-  SUBMITTING:  { label: "Submitting", step: 2, total: 5, color: "#eab308" },
-  SUBMITTED:   { label: "Submitted", step: 3, total: 5, color: "#3b82f6" },
-  PROCESSING:  { label: "In Progress", step: 4, total: 5, color: "#06b6d4" },
-  COMPLETED:   { label: "Completed", step: 5, total: 5, color: "#22c55e" },
-  PARTIAL:     { label: "Partial", step: 4, total: 5, color: "#a855f7" },
-  FAILED:      { label: "Failed", step: 0, total: 5, color: "#ef4444" },
-  CANCELLED:   { label: "Cancelled", step: 0, total: 5, color: "#9ca3af" },
-};
-
-function OrderStageIndicator({ status }: { status: string }) {
-  const stage = FULFILLMENT_STAGE_CONFIG[status] ?? {
-    label: status,
-    step: 0,
-    total: 5,
-    color: "#6b7280",
-  };
-
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "5px",
-        fontSize: "11px",
-        color: stage.color,
-        fontWeight: 600,
-      }}
-    >
-      <span
-        style={{
-          width: "7px",
-          height: "7px",
-          borderRadius: "50%",
-          background: stage.color,
-          boxShadow: `0 0 6px ${stage.color}88`,
-          display: "inline-block",
-        }}
-      />
-      <span>
-        {stage.label}
-        {stage.step > 0 && (
-          <span style={{ fontSize: "10px", opacity: 0.7, marginLeft: "4px" }}>
-            ({stage.step}/{stage.total})
-          </span>
-        )}
-      </span>
-    </div>
-  );
-}
-
-function FailureReasonBadge({ reason }: { reason: string }) {
-  const badge = FAILURE_REASON_BADGE[reason as OrderFailureReason];
-  if (!badge) return null;
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        fontSize: "10px",
-        fontWeight: 700,
-        letterSpacing: "0.04em",
-        padding: "2px 7px",
-        borderRadius: "6px",
-        background: badge.color + "22",
-        color: badge.color,
-        border: `1px solid ${badge.color}44`,
-        marginTop: "3px",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {badge.label}
-    </span>
-  );
-}
 
 function FailureReasonChip({
   reason,
@@ -563,163 +481,7 @@ export default async function AdminOrdersPage({
         {error ? (
           <AdminQueryError message="Orders could not be loaded. No empty-order state is being shown." />
         ) : orders?.length ? (
-          <div className="dashboard-table-wrap">
-            <table className="dashboard-table admin-orders-table">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Customer</th>
-                  <th>Service</th>
-                  <th>Target</th>
-                  <th>Qty</th>
-                  <th>Total</th>
-                  <th>Payment</th>
-                  <th>Fulfillment</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((order) => (
-                  <tr key={order.public_order_id}>
-                    <td>
-                      <Link prefetch={false} href={`/admin/orders/${order.public_order_id}`}>
-                        {order.public_order_id}
-                      </Link>
-                      <small>{new Date(order.created_at).toLocaleDateString()}</small>
-                    </td>
-                    <td>{(order.profiles as { email?: string } | null)?.email ?? "—"}</td>
-                    <td>
-                      {(() => {
-                        const sName = (order.services as { name?: string } | null)?.name || (order as { service_name_snapshot?: string }).service_name_snapshot;
-                        const pName = (order.services as { platforms?: { name?: string } | null } | null)?.platforms?.name || (order as { platform_snapshot?: string }).platform_snapshot;
-                        const isRemoved = !(order.services as { name?: string } | null)?.name && Boolean((order as { service_name_snapshot?: string }).service_name_snapshot);
-                        return (
-                          <>
-                            <strong>
-                              {sName || "—"}
-                              {isRemoved && <span style={{ fontSize: "11px", fontWeight: "normal", color: "#f87171", marginLeft: "4px" }}>(removed)</span>}
-                            </strong>
-                            <small>{pName ?? "—"}</small>
-                          </>
-                        );
-                      })()}
-                    </td>
-                    <td>{order.target_value}</td>
-                    <td>{order.quantity.toLocaleString()}</td>
-                    <td>{order.total} {order.currency}</td>
-                    <td>
-                      <span className={`admin-status ${order.payment_status.toLowerCase()}`}>
-                        {order.payment_status}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-start" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span className={`admin-status ${order.fulfillment_status.toLowerCase()}`}>
-                            {order.fulfillment_status}
-                          </span>
-                          <OrderStageIndicator status={order.fulfillment_status} />
-                        </div>
-                        {order.failure_reason && (
-                          <FailureReasonBadge reason={order.failure_reason} />
-                        )}
-                        {(order as { target_fix_status?: string }).target_fix_status === "AWAITING_CUSTOMER" && (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              fontSize: "10px",
-                              fontWeight: 700,
-                              letterSpacing: "0.04em",
-                              padding: "2px 7px",
-                              borderRadius: "6px",
-                              background: "#3182ce22",
-                              color: "#63b3ed",
-                              border: "1px solid #3182ce44",
-                              marginTop: "2px",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            ✉️ Awaiting Customer Fix
-                          </span>
-                        )}
-                        {(order as { target_fix_status?: string }).target_fix_status === "FIXED" && (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              fontSize: "10px",
-                              fontWeight: 700,
-                              letterSpacing: "0.04em",
-                              padding: "2px 7px",
-                              borderRadius: "6px",
-                              background: "#38a16922",
-                              color: "#68d391",
-                              border: "1px solid #38a16944",
-                              marginTop: "2px",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            ✓ Target Fixed
-                          </span>
-                        )}
-                        {(() => {
-                          const eligibility = getRetryEligibility({
-                            id: order.id,
-                            payment_status: order.payment_status,
-                            fulfillment_status: order.fulfillment_status,
-                            failure_reason: order.failure_reason,
-                            refund_status: (order as { refund_status?: string }).refund_status,
-                          });
-                          const refundElig = getRefundEligibility({
-                            id: order.id,
-                            payment_status: order.payment_status,
-                            fulfillment_status: order.fulfillment_status,
-                            failure_reason: order.failure_reason,
-                            refund_status: (order as { refund_status?: string }).refund_status,
-                            target_fix_status: (order as { target_fix_status?: string }).target_fix_status,
-                            total: order.total,
-                            currency: order.currency,
-                          });
-                          return (
-                            <>
-                              {refundElig.canRefund && (
-                                <AdminOrderRefundButton
-                                  orderId={order.id}
-                                  publicOrderId={order.public_order_id}
-                                  amount={Number(order.total ?? 0)}
-                                  currency={order.currency}
-                                  customerEmail={(order.profiles as { email?: string } | null)?.email}
-                                  eligible={refundElig.eligible}
-                                  requiresConfirmation={refundElig.requiresConfirmation}
-                                  canRefund={refundElig.canRefund}
-                                  reason={refundElig.reason}
-                                  refundStatus={(order as { refund_status?: string }).refund_status}
-                                  compact
-                                />
-                              )}
-                              {(eligibility.eligible || eligibility.canForce) && (
-                                <AdminOrderRetryAction
-                                  orderId={order.id}
-                                  publicOrderId={order.public_order_id}
-                                  failureReason={order.failure_reason}
-                                  canForce={eligibility.canForce}
-                                  isEligible={eligibility.eligible}
-                                />
-                              )}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </td>
-                    <td>
-                      <Link prefetch={false} className="admin-row-action" href={`/admin/orders/${order.public_order_id}`}>
-                        Open →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <AdminOrdersTableResponsive orders={orders as any} />
         ) : count === 0 ? (
           <AdminEmptyState message="No matching orders. Try adjusting the filters or search term." />
         ) : (

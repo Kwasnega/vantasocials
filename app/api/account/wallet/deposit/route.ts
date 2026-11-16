@@ -29,6 +29,8 @@ export async function POST(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 }); }
   const amount = body && typeof body === "object" && typeof (body as Record<string, unknown>).amount === "string" ? (body as Record<string, string>).amount.trim() : "";
+  const rawReturnTo = body && typeof body === "object" && typeof (body as Record<string, unknown>).return_to === "string" ? (body as Record<string, string>).return_to.trim() : "";
+  const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : "";
   let createdReference: string | null = null;
   try {
     const amountMinor = amountToMinorUnits(amount);
@@ -81,8 +83,10 @@ export async function POST(request: Request) {
     if (depositError?.code === "23505") return NextResponse.json({ error: "Deposit initialization is already in progress. Retry with the same idempotency key.", idempotency_key: idempotencyKey }, { status: 409 });
     if (depositError) throw depositError;
     const origin = process.env.NODE_ENV === "production" ? process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin : new URL(request.url).origin;
+    const returnParam = returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : "";
+    const callbackUrl = `${origin}/account/wallet?deposit_reference=${encodeURIComponent(reference)}${returnParam}`;
     try {
-      const initialized = await initializeWalletPaystack({ email: user.email || `${user.id}@invalid.vanta.local`, amountMinor, reference, callbackUrl: `${origin}/account/wallet?deposit_reference=${encodeURIComponent(reference)}`, depositId: deposit.id, userId: user.id });
+      const initialized = await initializeWalletPaystack({ email: user.email || `${user.id}@invalid.vanta.local`, amountMinor, reference, callbackUrl, depositId: deposit.id, userId: user.id });
       const data = initialized.data || {};
       if (typeof data.authorization_url !== "string") throw new Error("Invalid Paystack authorization response.");
       await admin.from("wallet_deposit_payments").update({ status: "AUTHORIZED", provider_response: { authorization_url: data.authorization_url, access_code: typeof data.access_code === "string" ? data.access_code : null } }).eq("id", deposit.id).eq("status", "INITIALIZING");

@@ -12,10 +12,11 @@ function formatStatus(status: string) {
 
 export default async function AccountPage() {
   const { user, db } = await requireUser("/account");
-  const [walletResult, overview, recentOrdersResult] = await Promise.all([
+  const [walletResult, overview, recentOrdersResult, awaitingPaymentResult] = await Promise.all([
     db.from("wallets").select("balance_minor,currency").eq("user_id", user.id).maybeSingle(),
     getAccountOverviewStats(db, user.id),
-    db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5),
+    db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status").eq("user_id", user.id).eq("payment_status", "PAID").order("created_at", { ascending: false }).limit(5),
+    db.from("orders").select("public_order_id,total,currency,payment_status,fulfillment_status").eq("user_id", user.id).neq("payment_status", "PAID").order("created_at", { ascending: false }).limit(5),
   ]);
   if (walletResult.error) throw walletResult.error;
   if (recentOrdersResult.error) throw recentOrdersResult.error;
@@ -23,6 +24,7 @@ export default async function AccountPage() {
   const wallet = walletResult.data;
   const { totalOrders, spendByCurrency } = overview;
   const recentOrders = recentOrdersResult.data ?? [];
+  const awaitingPaymentOrders = awaitingPaymentResult.data ?? [];
   const spent = formatSpendByCurrency(spendByCurrency);
   const balance = (Number(wallet?.balance_minor ?? 0) / 100).toFixed(2);
 
@@ -53,7 +55,7 @@ export default async function AccountPage() {
         <article className="overview-stat overview-stat-total-orders">
           <span>TOTAL ORDERS</span>
           <strong>{totalOrders}</strong>
-          <p>All time orders</p>
+          <p>Paid orders</p>
         </article>
         <article className="overview-stat overview-stat-total-spent">
           <span>TOTAL SPENT</span>
@@ -61,6 +63,50 @@ export default async function AccountPage() {
           <p>Paid orders only</p>
         </article>
       </div>
+
+      {awaitingPaymentOrders.length > 0 && (
+        <section className="overview-recent" style={{ marginBottom: "24px" }} aria-labelledby="overview-awaiting-title">
+          <div className="overview-recent-heading">
+            <div>
+              <h2 id="overview-awaiting-title" style={{ color: "#fbbf24" }}>Awaiting Payment ({awaitingPaymentOrders.length})</h2>
+              <p>These orders require payment to begin processing.</p>
+            </div>
+            <Link href="/account/orders?status=UNPAID">View awaiting payment <b aria-hidden="true">→</b></Link>
+          </div>
+          <ul className="dashboard-list overview-order-list">
+            {awaitingPaymentOrders.map((order) => (
+              <li key={order.public_order_id}>
+                <div className="overview-order-main">
+                  <Link href={`/account/orders/${order.public_order_id}`}>
+                    {order.public_order_id}
+                    <span aria-hidden="true">↗</span>
+                  </Link>
+                  <strong>{order.total} {order.currency}</strong>
+                </div>
+                <div className="overview-order-statuses" aria-label="Order statuses">
+                  <span className="order-status unpaid" style={{ backgroundColor: "rgba(239, 68, 68, 0.2)", color: "#f87171" }}>
+                    Awaiting Payment
+                  </span>
+                  <Link
+                    href={`/checkout?order=${order.public_order_id}`}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: "4px",
+                      backgroundColor: "#f59e0b",
+                      color: "#000",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      textDecoration: "none",
+                    }}
+                  >
+                    Pay Now →
+                  </Link>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="overview-recent" aria-labelledby="overview-recent-title">
         <div className="overview-recent-heading">

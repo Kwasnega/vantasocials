@@ -22,6 +22,11 @@ import {
 import { calculateCustomerTotal, unitRateToAdminPricePer1000 } from "../../lib/pricing/customer-price";
 
 type StoredOrderIntent = { key: string; fingerprint: string };
+type InsufficientBalanceInfo = {
+  shortfall: number;
+  walletBalance: number;
+  orderTotal: number;
+};
 const orderIntentStorageKey = (serviceId: string) => `vanta:order-creation-intent:${serviceId}`;
 const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -52,6 +57,7 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
     value: target,
   });
   const [error, setError] = useState("");
+  const [insufficientBalance, setInsufficientBalance] = useState<InsufficientBalanceInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [linkWarning, setLinkWarning] = useState<LinkWarning | null>(null);
   const orderIdempotencyKey = useRef<StoredOrderIntent | null>(null);
@@ -263,7 +269,7 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   }
 
   async function doSubmitLegacy(targetValue: string) {
-    setSubmitting(true); setError("");
+    setSubmitting(true); setError(""); setInsufficientBalance(null);
     try {
       const payload: Record<string, unknown> = {
         service_id: service.id,
@@ -282,6 +288,15 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
       const result = await response.json();
       if (response.status === 401) {
         window.location.href = `/login?next=${encodeURIComponent(`/services/${service.slug}`)}`;
+        return;
+      }
+      if (response.status === 402 && result.code === "INSUFFICIENT_WALLET_BALANCE") {
+        setInsufficientBalance({
+          shortfall: Number(result.shortfall ?? 0),
+          walletBalance: Number(result.wallet_balance ?? 0),
+          orderTotal: Number(result.order_total ?? 0),
+        });
+        setSubmitting(false);
         return;
       }
       if (!response.ok) {
@@ -327,7 +342,7 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   }
 
   async function doSubmitDynamic(resolvedFieldValues: Record<string, string>) {
-    setSubmitting(true); setError("");
+    setSubmitting(true); setError(""); setInsufficientBalance(null);
     try {
       const payload: Record<string, unknown> = {
         service_id: service.id,
@@ -346,6 +361,15 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
       const result = await response.json();
       if (response.status === 401) {
         window.location.href = `/login?next=${encodeURIComponent(`/services/${service.slug}`)}`;
+        return;
+      }
+      if (response.status === 402 && result.code === "INSUFFICIENT_WALLET_BALANCE") {
+        setInsufficientBalance({
+          shortfall: Number(result.shortfall ?? 0),
+          walletBalance: Number(result.wallet_balance ?? 0),
+          orderTotal: Number(result.order_total ?? 0),
+        });
+        setSubmitting(false);
         return;
       }
       if (!response.ok) {
@@ -521,6 +545,49 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
       <label>Quantity<input type="text" inputMode="numeric" value={quantityInput} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value.replace(/[^0-9]/g, "")); setError(""); }} onBlur={() => { if (quantityInput && !quantityValid) setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`); }} aria-invalid={Boolean(quantityInput) && !quantityValid} /></label>
       <div className="config-summary"><span>Total</span><strong>{service.currency} {total}</strong></div>
       {error && <p className="order-field-error" role="alert">{error}</p>}
+      {insufficientBalance && (
+        <div
+          style={{
+            margin: "14px 0",
+            padding: "16px",
+            borderRadius: "10px",
+            backgroundColor: "rgba(245, 158, 11, 0.12)",
+            border: "1px solid rgba(245, 158, 11, 0.35)",
+            color: "#fef3c7",
+          }}
+          role="alert"
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "14px", color: "#fbbf24", marginBottom: "6px" }}>
+            <span>⚠️</span> Insufficient Wallet Balance
+          </div>
+          <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: 1.4 }}>
+            You need <strong>GHS {insufficientBalance.shortfall.toFixed(2)} more</strong> to place this order (Order total: GHS {insufficientBalance.orderTotal.toFixed(2)}, current balance: GHS {insufficientBalance.walletBalance.toFixed(2)}).
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              const shortfallFormatted = insufficientBalance.shortfall.toFixed(2);
+              const returnUrl = `/services/${service.slug}`;
+              window.location.href = `/account/wallet?amount=${encodeURIComponent(shortfallFormatted)}&return_to=${encodeURIComponent(returnUrl)}`;
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px 16px",
+              borderRadius: "6px",
+              backgroundColor: "#f59e0b",
+              color: "#000",
+              fontWeight: 700,
+              fontSize: "13px",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Deposit GHS {insufficientBalance.shortfall.toFixed(2)} & Continue ↗
+          </button>
+        </div>
+      )}
       <button
         className="service-action-link"
         type="button"
@@ -618,6 +685,49 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
         <div className="quantity-tools"><input className="quantity-range" type="range" min={service.min_quantity} max={service.max_quantity} step="1" value={quantityValid ? quantity : service.min_quantity} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value); setError(""); }} aria-label="Choose quantity with slider" /><select aria-label="Choose a common quantity" value="" onChange={(event) => { if (event.target.value) { beginDifferentOrderIntent(); setQuantityInput(event.target.value); setError(""); } }}><option value="">Quick choose</option><option value={String(service.min_quantity)}>Minimum ({service.min_quantity.toLocaleString()})</option><option value={String(Math.min(service.max_quantity, service.min_quantity * 2))}>Starter</option><option value={String(Math.min(service.max_quantity, 1000))}>1,000</option><option value={String(Math.min(service.max_quantity, 10000))}>10,000</option></select></div>
         <div className="config-summary"><span>Total</span><strong>{service.currency} {total}</strong></div>
         {error && <p className="order-field-error" role="alert">{error}</p>}
+      {insufficientBalance && (
+        <div
+          style={{
+            margin: "14px 0",
+            padding: "16px",
+            borderRadius: "10px",
+            backgroundColor: "rgba(245, 158, 11, 0.12)",
+            border: "1px solid rgba(245, 158, 11, 0.35)",
+            color: "#fef3c7",
+          }}
+          role="alert"
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "14px", color: "#fbbf24", marginBottom: "6px" }}>
+            <span>⚠️</span> Insufficient Wallet Balance
+          </div>
+          <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: 1.4 }}>
+            You need <strong>GHS {insufficientBalance.shortfall.toFixed(2)} more</strong> to place this order (Order total: GHS {insufficientBalance.orderTotal.toFixed(2)}, current balance: GHS {insufficientBalance.walletBalance.toFixed(2)}).
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              const shortfallFormatted = insufficientBalance.shortfall.toFixed(2);
+              const returnUrl = `/services/${service.slug}`;
+              window.location.href = `/account/wallet?amount=${encodeURIComponent(shortfallFormatted)}&return_to=${encodeURIComponent(returnUrl)}`;
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px 16px",
+              borderRadius: "6px",
+              backgroundColor: "#f59e0b",
+              color: "#000",
+              fontWeight: 700,
+              fontSize: "13px",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Deposit GHS {insufficientBalance.shortfall.toFixed(2)} & Continue ↗
+          </button>
+        </div>
+      )}
         <button
           className="service-action-link"
           type="button"

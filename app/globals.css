@@ -4163,3 +4163,116 @@ button, a, .button, .how-cta, .step-card, .catalog-card, .dashboard-card {
     text-align: center;
   }
 }
+
+
+/* ==========================================================================
+   Admin Orders Responsive Layout & Viewport Overflow Fixes
+   ========================================================================== */
+.admin-orders-page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.orders-hero {
+  min-height: auto !important;
+  padding: 20px 24px !important;
+  margin: 0 0 18px !important;
+  border-radius: 18px !important;
+}
+
+.orders-hero h1 {
+  font-size: clamp(28px, 4vw, 42px) !important;
+  line-height: 1.05 !important;
+  margin: 6px 0 8px !important;
+}
+
+.orders-hero p:last-child {
+  font-size: 13px !important;
+  max-width: 520px !important;
+}
+
+.orders-hero-mark {
+  width: 64px !important;
+  height: 64px !important;
+  font-size: 32px !important;
+  border-radius: 18px !important;
+  margin-right: 0 !important;
+}
+
+.orders-stats {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  margin-bottom: 16px !important;
+}
+
+.orders-stats article {
+  min-height: auto !important;
+  padding: 14px 16px !important;
+  border-radius: 14px !important;
+}
+
+.orders-stats strong {
+  margin: 8px 0 4px !important;
+  font-size: 22px !important;
+}
+
+.orders-redesign-panel {
+  padding: 20px 20px 16px !important;
+  border-radius: 18px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.customers-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-orders-desktop-view {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.admin-orders-mobile-cards {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .admin-orders-desktop-view {
+    display: none !important;
+  }
+  .admin-orders-mobile-cards {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .orders-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .orders-stats {
+    grid-template-columns: 1fr !important;
+  }
+  .orders-hero-mark {
+    display: none !important;
+  }
+}
+
+/* Override old fixed min-width on orders table — now uses table-layout:fixed with colgroup widths */
+.admin-orders-table {
+  min-width: 0 !important;
+  width: 100% !important;
+}

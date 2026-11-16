@@ -333,6 +333,32 @@ export async function POST(request: Request) {
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : "Order total is outside the supported payment range." }, { status: 400 });
     }
+
+    // Server-side check for sufficient wallet balance: do NOT create order if balance is insufficient
+    const { data: customerWallet, error: walletQueryError } = await admin
+      .from("wallets")
+      .select("balance_minor,currency")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (walletQueryError) throw walletQueryError;
+
+    const walletBalanceGhs = Number(customerWallet?.balance_minor ?? 0) / 100;
+    const orderTotalGhs = Number(subtotal);
+
+    if (walletBalanceGhs < orderTotalGhs) {
+      const shortfallGhs = Math.max(0, orderTotalGhs - walletBalanceGhs);
+      return NextResponse.json(
+        {
+          error: `Insufficient wallet balance. You need GHS ${shortfallGhs.toFixed(2)} more to place this order.`,
+          code: "INSUFFICIENT_WALLET_BALANCE",
+          wallet_balance: walletBalanceGhs,
+          order_total: orderTotalGhs,
+          shortfall: shortfallGhs,
+        },
+        { status: 402 }
+      );
+    }
     const fingerprint = orderIntentFingerprint(hasDynamicFields
       ? { service_id: service.id, quantity, input_values: dynamicValidation!.validatedValues }
       : { service_id: service.id, quantity, target_value: normalizedTarget!.target });

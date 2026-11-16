@@ -4,7 +4,15 @@ import { formatOrderInputValue } from "../../../lib/orders/display-input-values"
 import { escapePostgrestSearchTerm } from "../../../lib/admin/order-list";
 import { getPlatformLogoUrl } from "../../../lib/catalog/logo";
 
-const statuses = ["ALL", "UNPAID", "PAID", "PROCESSING", "COMPLETED", "PARTIAL", "CANCELLED", "FAILED"];
+const statuses = [
+  { value: "ALL", label: "All Paid Orders" },
+  { value: "UNPAID", label: "Awaiting Payment (Unpaid)" },
+  { value: "PROCESSING", label: "Processing" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "PARTIAL", label: "Partial" },
+  { value: "CANCELLED", label: "Cancelled" },
+  { value: "FAILED", label: "Failed" },
+];
 
 function formatStatus(status: string) {
   return status
@@ -21,7 +29,8 @@ export default async function AccountOrdersPage({
 }) {
   const { user, db } = await requireUser("/account/orders");
   const params = await searchParams;
-  const status = statuses.includes((params.status ?? "ALL").toUpperCase())
+  const statusValues = statuses.map((s) => s.value);
+  const status = statusValues.includes((params.status ?? "ALL").toUpperCase())
     ? (params.status ?? "ALL").toUpperCase()
     : "ALL";
   const q = (params.q ?? "").trim();
@@ -87,7 +96,7 @@ export default async function AccountOrdersPage({
           <span>Status</span>
           <select name="status" defaultValue={status}>
             {statuses.map((item) => (
-              <option key={item} value={item}>{item === "ALL" ? "All" : formatStatus(item)}</option>
+              <option key={item.value} value={item.value}>{item.label}</option>
             ))}
           </select>
         </label>

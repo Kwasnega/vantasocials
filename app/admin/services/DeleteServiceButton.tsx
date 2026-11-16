@@ -17,13 +17,15 @@ export function DeleteServiceButton({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function handleDelete() {
+  async function handleDelete(typedConfirmation: string) {
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       const res = await fetch(`/api/admin/services/${serviceId}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: typedConfirmation }),
       });
       const data: unknown = await res.json().catch(() => null);
       const result = data && typeof data === "object" && !Array.isArray(data)
@@ -61,8 +63,9 @@ export function DeleteServiceButton({
       {confirming && (
         <DeleteConfirmationCard
           title={`Delete ${serviceName}?`}
-          description="This permanently removes the service and all its configuration from the catalog."
-          warning="Services with existing customer orders cannot be deleted."
+          description="Orders will be kept but will show this service as removed. Customers will no longer be able to order it."
+          warning="If any attached orders are in-progress, they will remain safely preserved with service snapshot intact."
+          requiredWord="DELETE"
           confirmLabel="Delete service"
           busyLabel="Deleting…"
           busy={busy}

@@ -2,83 +2,45 @@ import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { requireAdmin } from "../../../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
-import { enforceAdminRateLimit, limiterUnavailable } from "../../../../../lib/security/rate-limit";
+import { detachOrdersFromService, ensureRemovedServicePlaceholder, REMOVED_SERVICE_ID } from "../../../../../lib/admin/service-deletion";
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ serviceId: string }> }
-) {
-  const { user, admin } = await requireAdmin();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-  if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
-
-  try {
-    const rejected = await enforceAdminRateLimit(request, user.id, "service-mutation", [30, 30]);
-    if (rejected) return rejected;
-  } catch {
-    return limiterUnavailable();
-  }
-
-  const { serviceId } = await params;
-  if (!serviceId) return NextResponse.json({ error: "Service ID is required." }, { status: 400 });
-
-  const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
-  }
-
-  const updates: Record<string, unknown> = {};
-  if (typeof body.active === "boolean") {
-    updates.active = body.active;
-  }
-
-  if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
-  }
-
-  const db = createSupabaseAdminClient();
-  const { data, error } = await db
-    .from("services")
-    .update(updates)
-    .eq("id", serviceId)
-    .select("id,active")
-    .maybeSingle();
-
-  if (error) {
-    return NextResponse.json({ error: "Unable to update service." }, { status: 500 });
-  }
-  if (!data) return NextResponse.json({ error: "Service not found." }, { status: 404 });
-
-  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
-  return NextResponse.json({ service: data });
-}
-
+/**
+ * DELETE /api/admin/services/[serviceId]
+ * Allows deleting a service even when orders exist under it.
+ * Snapshots the service details onto the orders, transitions them to REMOVED_SERVICE_ID,
+ * deletes dependent input fields and mappings, logs to admin_action_log, and hard-deletes the service.
+ */
 export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ serviceId: string }> }
+  req: Request,
+  { params }: { params: Promise<{ serviceId: string }> },
 ) {
-  const { user, admin } = await requireAdmin();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-  if (!admin) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
-
-  try {
-    const rejected = await enforceAdminRateLimit(request, user.id, "service-delete", [30, 30]);
-    if (rejected) return rejected;
-  } catch {
-    return limiterUnavailable();
+  const { admin, user } = await requireAdmin();
+  if (!admin || !user) {
+    return NextResponse.json({ error: "Unauthorized. Admin permissions required." }, { status: 401 });
   }
 
   const { serviceId } = await params;
-  if (!serviceId) {
-    return NextResponse.json({ error: "Service ID is required." }, { status: 400 });
+  if (!serviceId) return NextResponse.json({ error: "serviceId is required." }, { status: 400 });
+
+  if (serviceId === REMOVED_SERVICE_ID) {
+    return NextResponse.json({ error: "Cannot delete the removed service system placeholder." }, { status: 400 });
+  }
+
+  // Parse body for confirmation if supplied
+  let confirmation = "";
+  try {
+    const body = await req.json();
+    confirmation = (body?.confirmation ?? "").trim();
+  } catch {
+    // optional body
   }
 
   const db = createSupabaseAdminClient();
 
-  // Verify the service exists
+  // Look up service and its platform
   const { data: service, error: serviceError } = await db
     .from("services")
-    .select("id")
+    .select("id, name, provider, platforms(name)")
     .eq("id", serviceId)
     .maybeSingle();
 
@@ -87,36 +49,37 @@ export async function DELETE(
   }
   if (!service) return NextResponse.json({ error: "Service not found." }, { status: 404 });
 
-  // Check for orders — the only hard dependency that should block deletion.
-  // Input fields, mappings, and audit logs are deleted via CASCADE.
-  const { count: orderCount, error: ordersError } = await db
+  // Count orders
+  const { count: orderCount } = await db
     .from("orders")
     .select("id", { count: "exact", head: true })
     .eq("service_id", serviceId);
 
-  if (ordersError || orderCount === null) {
-    return NextResponse.json({ error: "Unable to verify order history. Nothing was deleted." }, { status: 500 });
+  // If orders exist, require typed "DELETE" confirmation
+  if ((orderCount ?? 0) > 0 && confirmation !== "DELETE") {
+    return NextResponse.json(
+      { error: `This service has ${orderCount} order(s). Type DELETE to confirm deletion.` },
+      { status: 400 }
+    );
   }
 
-  if (orderCount > 0) {
-    // Service has real customer orders — cannot safely erase it.
-    return NextResponse.json({
-      deleted: false,
-      error: `This service has ${orderCount} order(s) and cannot be deleted. Remove the orders first or contact support.`,
-    }, { status: 409 });
-  }
+  // 1. Snapshot and detach attached orders
+  const platformName = (service.platforms as { name?: string } | null)?.name || "General";
+  const detachedCount = await detachOrdersFromService(
+    db,
+    serviceId,
+    service.name,
+    platformName,
+    service.provider || "none"
+  );
 
-  // Pre-delete dependent records that have ON DELETE RESTRICT foreign keys:
-  // 1. service_provider_input_mappings (references service_input_fields and services)
+  // 2. Pre-delete dependent records
   await db.from("service_provider_input_mappings").delete().eq("service_id", serviceId);
-  // 2. service_input_fields (references services)
   await db.from("service_input_fields").delete().eq("service_id", serviceId);
-  // 3. provider_mapping_audit (references services with on delete restrict)
   await db.from("provider_mapping_audit").delete().eq("service_id", serviceId);
-  // 4. pricing_audit_log (references services)
   await db.from("pricing_audit_log").delete().eq("service_id", serviceId);
 
-  // Now hard-delete the service itself
+  // 3. Delete the service
   const { data: deleted, error: deleteError } = await db
     .from("services")
     .delete()
@@ -125,14 +88,35 @@ export async function DELETE(
     .maybeSingle();
 
   if (deleteError) {
-    return NextResponse.json({
-      error: deleteError.code === "23503"
-        ? "Service has a protected dependency and could not be deleted."
-        : "Unable to delete service.",
-    }, { status: deleteError.code === "23503" ? 409 : 500 });
+    console.error("[Service Delete Error]:", deleteError);
+    return NextResponse.json(
+      { error: `Unable to delete service: ${deleteError.message}` },
+      { status: 500 }
+    );
   }
-  if (!deleted) return NextResponse.json({ error: "Service not found." }, { status: 404 });
 
-  try { revalidateTag("catalog"); } catch { /* best-effort revalidation */ }
-  return NextResponse.json({ deleted: true });
+  // 4. Log to admin_action_log
+  await db.from("admin_action_log").insert({
+    action: "DELETE_SERVICE",
+    performed_by: user.id,
+    details: {
+      service_id: serviceId,
+      service_name: service.name,
+      provider: service.provider,
+      platform: platformName,
+      detached_orders_count: detachedCount,
+    },
+    result_summary: {
+      deleted: true,
+      detached_orders: detachedCount,
+    },
+  });
+
+  try { revalidateTag("catalog"); } catch { /* best-effort */ }
+
+  return NextResponse.json({
+    deleted: true,
+    detachedOrders: detachedCount,
+    serviceId,
+  });
 }

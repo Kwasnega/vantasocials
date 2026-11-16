@@ -138,10 +138,64 @@ export async function fulfillReliableSMMOrder(input: {
   const key = `vanta:${order.id}:reliablesmm:${order.provider_service_id}`;
   const { data: existing } = await admin.from("provider_orders").select("id,attempt_status,provider_order_id,status").eq("idempotency_key", key).maybeSingle();
   if (existing?.attempt_status === "FAILED_BEFORE_SUBMISSION") {
-    const retry = await admin.rpc("create_safe_provider_retry", { p_attempt_id: existing.id });
-    if (retry.error) throw retry.error;
-    if (!retry.data) return existing;
-    const { data: next, error: nextError } = await admin.from("provider_orders").select("id,attempt_status,provider_order_id,status,provider_service_id,target_value,quantity").eq("id", retry.data).single();
+    let nextAttemptId: string | null = null;
+    try {
+      const retry = await admin.rpc("create_safe_provider_retry", { p_attempt_id: existing.id });
+      if (!retry.error && retry.data) {
+        // Handle both string UUID and row object result format
+        if (typeof retry.data === "string") {
+          nextAttemptId = retry.data;
+        } else if (typeof retry.data === "object" && retry.data !== null && "id" in retry.data) {
+          nextAttemptId = String((retry.data as { id: unknown }).id);
+        }
+      }
+    } catch {
+      // Best-effort RPC call; if it errors on composite cast, create retry row directly below
+    }
+
+    if (!nextAttemptId) {
+      // Directly insert next attempt safely with incremented attempt_number
+      const { data: latestAttempt } = await admin
+        .from("provider_orders")
+        .select("attempt_number, submission_retry_count")
+        .eq("id", existing.id)
+        .single();
+
+      const nextAttemptNum = ((latestAttempt?.attempt_number ?? 1) as number) + 1;
+      const nextRetryCount = ((latestAttempt?.submission_retry_count ?? 0) as number) + 1;
+
+      const { data: createdAttempt, error: createErr } = await admin
+        .from("provider_orders")
+        .insert({
+          order_id: order.id,
+          attempt_number: nextAttemptNum,
+          provider: "reliablesmm",
+          provider_service_id: order.provider_service_id,
+          quantity: input.quantity,
+          status: "NOT_STARTED",
+          attempt_status: "PENDING_SUBMISSION",
+          idempotency_key: `${key}:retry:${nextAttemptNum}`,
+          target_value: persistedTarget.link,
+          provider_cost: providerCost,
+          currency: "USD",
+          raw_response: {},
+          submission_retry_count: nextRetryCount,
+        })
+        .select()
+        .single();
+
+      if (createErr || !createdAttempt) {
+        return existing;
+      }
+      return submitAttempt(createdAttempt, adapter, admin);
+    }
+
+    const { data: next, error: nextError } = await admin
+      .from("provider_orders")
+      .select("id,attempt_status,provider_order_id,status,provider_service_id,target_value,quantity")
+      .eq("id", nextAttemptId)
+      .single();
+
     if (nextError || !next) throw nextError || new Error("Unable to load retry attempt.");
     return submitAttempt(next, adapter, admin);
   }

@@ -18,6 +18,29 @@ import { dispatchPaidOrder } from "./dispatch-paid-order";
 import { getRetryEligibility } from "./retry-eligibility";
 import { classifyProviderFailure } from "./failure-classifier";
 import { recordOrderEvent } from "../orders/events";
+import { normalizeTarget } from "../targets/normalize";
+
+/**
+ * Format any thrown or caught error into a readable, diagnostic message.
+ * Never allows '[object Object]' to be stored or displayed.
+ */
+export function formatError(err: unknown): string {
+  if (!err) return "Unknown error";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message;
+  if (typeof err === "object") {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.message === "string") return obj.message;
+    if (typeof obj.details === "string") return obj.details;
+    if (typeof obj.code === "string") return `Error code ${obj.code}: ${obj.message || "Operation failed"}`;
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return "Internal error object";
+    }
+  }
+  return String(err);
+}
 
 export type RetryResult = {
   orderId: string;
@@ -129,7 +152,7 @@ export async function retryOrderFulfillment(params: {
   // 1. Fetch current order with latest provider_orders info
   const { data: order, error: orderErr } = await db
     .from("orders")
-    .select("id,public_order_id,service_id,quantity,payment_status,fulfillment_status,failure_reason,attempt_count,refund_status")
+    .select("id,public_order_id,service_id,quantity,target_type,target_value,payment_status,fulfillment_status,failure_reason,attempt_count,refund_status,input_values,services(name,platforms(name,slug))")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -140,6 +163,59 @@ export async function retryOrderFulfillment(params: {
       outcome: "BLOCKED",
       message: "Order not found.",
     };
+  }
+
+  // 1b. Normalize target before attempting retry to fix old un-normalized targets
+  const platformSlug = (order.services as { platforms?: { slug?: string } | null } | null)?.platforms?.slug || "general";
+  const rawTargetValue = (order.input_values && typeof order.input_values === "object" && Object.values(order.input_values)[0])
+    ? String(Object.values(order.input_values)[0])
+    : order.target_value;
+
+  if (rawTargetValue && platformSlug !== "general") {
+    try {
+      const normResult = await normalizeTarget({
+        platform: platformSlug,
+        targetType: order.target_type || "url",
+        input: rawTargetValue,
+      });
+
+      if (normResult.ok) {
+        if (normResult.confidence === "low") {
+          return {
+            orderId,
+            publicOrderId: order.public_order_id,
+            outcome: "BLOCKED",
+            message: "This link needs to be corrected before retrying (low confidence).",
+          };
+        }
+        if (normResult.canonical !== order.target_value) {
+          // Update order target with normalized canonical URL and record event
+          await db
+            .from("orders")
+            .update({ target_value: normResult.canonical })
+            .eq("id", orderId);
+
+          await recordOrderEvent({
+            orderId,
+            type: "target_normalized_on_retry",
+            statusBefore: order.fulfillment_status,
+            statusAfter: order.fulfillment_status,
+            message: `Target URL normalized before retry: ${order.target_value} -> ${normResult.canonical}`,
+            actor: `admin:${adminUserId}`,
+            meta: { old_target: order.target_value, canonical: normResult.canonical },
+          });
+        }
+      } else {
+        return {
+          orderId,
+          publicOrderId: order.public_order_id,
+          outcome: "BLOCKED",
+          message: `This link needs to be corrected before retrying: ${normResult.message}`,
+        };
+      }
+    } catch {
+      // Best-effort normalization
+    }
   }
 
   // Check if provider order already exists
@@ -297,15 +373,27 @@ export async function retryOrderFulfillment(params: {
   } catch (error) {
     // Reclassify and persist failure
     const classified = classifyProviderFailure(error);
+    const readableDetail = formatError(error);
+
     await db
       .from("orders")
       .update({
         fulfillment_status: "FAILED",
         failure_reason: classified.reason,
-        failure_detail: classified.detail,
+        failure_detail: readableDetail,
         failed_at: new Date().toISOString(),
       })
       .eq("id", orderId);
+
+    await recordOrderEvent({
+      orderId,
+      type: "retry_failed",
+      statusBefore: "SUBMITTING",
+      statusAfter: "FAILED",
+      message: `Fulfillment retry failed: ${readableDetail}`,
+      actor: `admin:${adminUserId}`,
+      meta: { error: readableDetail, reason: classified.reason },
+    }).catch(() => {});
 
     return {
       orderId,
@@ -313,7 +401,7 @@ export async function retryOrderFulfillment(params: {
       outcome: "FAILED_AGAIN",
       newStatus: "FAILED",
       failureReason: classified.reason,
-      message: `Retry failed: ${classified.detail}`,
+      message: `Retry failed: ${readableDetail}`,
     };
   }
 }

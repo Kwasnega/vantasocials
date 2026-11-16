@@ -523,6 +523,21 @@ export default async function AdminOrderDetail({ params }: { params: Promise<{ i
               </span>
             )}
           </h1>
+          {fullOrder.failure_detail && (
+            <div style={{ marginTop: "6px", marginBottom: "6px" }}>
+              <p style={{ margin: 0, fontSize: "12px", color: "#f87171" }}>
+                ⚠️ Retry failed: couldn't start the attempt
+              </p>
+              <details style={{ marginTop: "4px" }}>
+                <summary style={{ fontSize: "11px", color: "#a99bb2", cursor: "pointer" }}>
+                  Technical details
+                </summary>
+                <pre style={{ margin: "4px 0 0", padding: "6px 8px", background: "rgba(0,0,0,0.3)", borderRadius: "4px", fontSize: "10px", color: "#e2d9eb", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {fullOrder.failure_detail}
+                </pre>
+              </details>
+            </div>
+          )}
           <p>{service?.platforms?.name ?? "—"} / {service?.name ?? "Service unavailable"}</p>
           <small style={{ color: "#aaa" }}>Created: {new Date(fullOrder.created_at).toLocaleString()}</small>
         </div>

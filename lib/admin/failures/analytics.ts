@@ -44,6 +44,7 @@ export const getCachedFailureAnalytics = unstable_cache(
       db
         .from("orders")
         .select("id,service_id,fulfillment_status,failure_reason,attempt_count,created_at,updated_at")
+        .eq("payment_status", "PAID")
         .gte("created_at", windowStart),
       db.from("services").select("id,name,slug,platform_id,provider,provider_service_id"),
       db.from("platforms").select("id,name,slug"),

@@ -1,6 +1,7 @@
 import { requireAdmin } from "../../../lib/admin/auth";
 import { createSupabaseAdminClient } from "../../../lib/supabase/server";
 import BalanceRefresh from "./BalanceRefresh";
+import { DeleteProviderButton } from "./DeleteProviderButton";
 import { AdminQueryError } from "../AdminDataState";
 
 export default async function AdminProvidersPage() {
@@ -10,10 +11,12 @@ export default async function AdminProvidersPage() {
   const [
     { data: health, error: healthError },
     { count: catalogCount, error: catalogError },
+    { count: serviceCount },
     { data: latestSync, error: syncError },
   ] = await Promise.all([
     db.from("provider_health").select("provider,configured,balance,balance_currency,last_balance_check,balance_status,last_catalog_sync,catalog_count,last_error").eq("provider", "reliablesmm").maybeSingle(),
     db.from("provider_catalog_services").select("id", { count: "exact", head: true }).eq("provider", "reliablesmm"),
+    db.from("services").select("id", { count: "exact", head: true }).eq("provider", "reliablesmm"),
     db.from("provider_sync_runs").select("status,started_at,completed_at,imported_count,updated_count,failed_count").eq("provider", "reliablesmm").order("started_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
   return <>
@@ -33,6 +36,7 @@ export default async function AdminProvidersPage() {
         {syncError ? <AdminQueryError message="Catalog sync status could not be loaded." /> : <span>Last sync: {latestSync ? `${latestSync.status} · ${new Date(latestSync.started_at).toLocaleString()}` : "No sync runs recorded"}</span>}
         {latestSync && !syncError && <span>Last sync imported {latestSync.imported_count}, updated {latestSync.updated_count}, failures {latestSync.failed_count}.</span>}
         <BalanceRefresh/><small>Fulfillment disabled; no provider write operations are exposed.</small>
+        <DeleteProviderButton provider="reliablesmm" serviceCount={serviceCount ?? 0} />
       </article>
     </div>
   </>;

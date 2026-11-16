@@ -16,6 +16,7 @@ export type CheckoutOrder = {
     authorName?: string;
     thumbnailUrl?: string;
     providerName?: string;
+    acknowledged_warning?: boolean;
   } | null;
   quantity: number;
   unit_price: string;

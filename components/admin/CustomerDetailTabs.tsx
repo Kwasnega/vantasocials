@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CustomerStatusModal } from "./CustomerStatusModal";
 import { AdminAddMoneyModal } from "./AdminAddMoneyModal";
+import { AdminEditBalanceModal } from "./AdminEditBalanceModal";
 
 export type CustomerDetailTabsProps = {
   customerId: string;
@@ -89,6 +90,7 @@ export function CustomerDetailTabs({
   const [activeTab, setActiveTab] = useState<"orders" | "deposits" | "ledger" | "notes" | "activity">("orders");
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [addMoneyModalOpen, setAddMoneyModalOpen] = useState(false);
+  const [editBalanceModalOpen, setEditBalanceModalOpen] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
 
   // New Note state
@@ -227,6 +229,22 @@ export function CustomerDetailTabs({
             }}
           >
             + Add money
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditBalanceModalOpen(true)}
+            style={{
+              padding: "8px 14px",
+              borderRadius: "6px",
+              backgroundColor: "rgba(216, 131, 255, 0.18)",
+              border: "1px solid rgba(216, 131, 255, 0.35)",
+              color: "#d883ff",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            ✎ Edit Balance
           </button>
           <button
             type="button"
@@ -703,6 +721,14 @@ export function CustomerDetailTabs({
         customerId={customerId}
         customerEmail={customerEmail}
         customerOrders={orders}
+      />
+
+      <AdminEditBalanceModal
+        isOpen={editBalanceModalOpen}
+        onClose={() => setEditBalanceModalOpen(false)}
+        customerId={customerId}
+        customerEmail={customerEmail}
+        currentBalanceGhs={currentWalletBalanceGhs}
       />
     </div>
   );

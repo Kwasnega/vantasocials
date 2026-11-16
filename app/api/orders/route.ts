@@ -171,7 +171,7 @@ export async function POST(request: Request) {
 
     const { data: service, error: serviceError } = await admin
       .from("services")
-      .select("id,slug,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active,provider,provider_service_id,platforms(id,active,slug)")
+      .select("id,name,slug,platform_id,target_type,min_quantity,max_quantity,selling_rate,currency,active,provider,provider_service_id,platforms(id,name,active,slug)")
       .eq("id", serviceId)
       .maybeSingle();
 
@@ -346,12 +346,16 @@ export async function POST(request: Request) {
         thumbnailUrl: typeof rawPreview.thumbnailUrl === "string" ? rawPreview.thumbnailUrl.slice(0, 500) : undefined,
         providerName: typeof rawPreview.providerName === "string" ? rawPreview.providerName.slice(0, 50) : undefined,
         fetchedAt: typeof rawPreview.fetchedAt === "string" ? rawPreview.fetchedAt : new Date().toISOString(),
+        acknowledged_warning: typeof rawPreview.acknowledged_warning === "boolean" ? rawPreview.acknowledged_warning : undefined,
       };
     }
 
     const orderInsert = {
       user_id: user.id,
       service_id: service.id,
+      service_name_snapshot: service.name,
+      platform_snapshot: servicePlatform.name || servicePlatform.slug,
+      provider_name_snapshot: service.provider ?? "reliablesmm",
       target_type: service.target_type,
       ...(hasDynamicFields ? { target_value: "dynamic-configured-order" } : { target_value: normalizedTarget!.target }),
       target_raw: rawTargetInput,

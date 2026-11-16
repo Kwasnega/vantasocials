@@ -34,9 +34,12 @@ export default async function AccountOrdersPage({
     .eq("user_id", user.id);
   if (status === "UNPAID") query = query.eq("payment_status", "UNPAID");
   else if (status === "PAID") query = query.eq("payment_status", "PAID");
-  else if (status === "PROCESSING") query = query.in("fulfillment_status", ["PROCESSING", "SUBMITTING", "SUBMITTED"]);
+  else if (status === "PROCESSING") query = query.eq("payment_status", "PAID").in("fulfillment_status", ["PROCESSING", "SUBMITTING", "SUBMITTED"]);
   else if (["COMPLETED", "PARTIAL", "CANCELLED", "FAILED"].includes(status)) {
-    query = query.eq("fulfillment_status", status);
+    query = query.eq("payment_status", "PAID").eq("fulfillment_status", status);
+  } else {
+    // Default "ALL" view: hide unpaid abandoned checkouts by default
+    query = query.eq("payment_status", "PAID");
   }
   if (date !== "all") {
     query = query.gte("created_at", new Date(Date.now() - Number(date) * 24 * 60 * 60 * 1000).toISOString());

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import type { CatalogService } from "../../lib/catalog/services";
@@ -60,6 +60,25 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   const [previewData, setPreviewData] = useState<LinkPreviewData | null>(null);
   const [previewErrorCode, setPreviewErrorCode] = useState<LinkPreviewErrorCode | null>(null);
   const [previewConfirmed, setPreviewConfirmed] = useState(false);
+  const [lastValidatedTarget, setLastValidatedTarget] = useState("");
+  const previewCardRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset confirmation state when target, platform, or service changes
+  useEffect(() => {
+    setPreviewData(null);
+    setPreviewErrorCode(null);
+    setPreviewConfirmed(false);
+    setLastValidatedTarget("");
+  }, [service.id, platformSlug]);
+
+  // Determine if confirmation is gating the checkout button:
+  // We gate if:
+  // 1) previewData is present and previewConfirmed is false, OR
+  // 2) a warning card is shown (errorCode is NOT_FOUND or PRIVATE_OR_REMOVED) and not confirmed/acknowledged
+  const isCardAwaitingConfirmation = Boolean(
+    (previewData && !previewConfirmed) ||
+    ((previewErrorCode === "NOT_FOUND" || previewErrorCode === "PRIVATE_OR_REMOVED") && !previewConfirmed)
+  );
 
   // Helper to safely track PostHog events without PII
   const trackPreviewEvent = (eventName: string, props: Record<string, unknown> = {}) => {
@@ -140,6 +159,8 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
     if (!rawInput.trim()) {
       setPreviewData(null);
       setPreviewErrorCode(null);
+      setPreviewConfirmed(false);
+      setLastValidatedTarget("");
       return;
     }
     try {
@@ -156,7 +177,18 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
         } else {
           setTarget(res.canonical);
         }
-        void fetchPreview(res.canonical);
+        if (res.canonical !== lastValidatedTarget) {
+          setLastValidatedTarget(res.canonical);
+          setPreviewConfirmed(false);
+          void fetchPreview(res.canonical);
+          // Move focus smoothly to the preview card region once loaded
+          setTimeout(() => {
+            const cardEl = previewCardRef.current?.querySelector<HTMLElement>(
+              "button.preview-btn-primary, [role='region'], section"
+            );
+            cardEl?.focus();
+          }, 350);
+        }
       } else {
         if (fieldKey) {
           setFieldErrors((prev) => ({ ...prev, [fieldKey]: res.message }));
@@ -165,6 +197,8 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
         }
         setPreviewData(null);
         setPreviewErrorCode(null);
+        setPreviewConfirmed(false);
+        setLastValidatedTarget("");
       }
     } catch {
       // ignore
@@ -378,9 +412,25 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
   }
 
   // Whether the submit button for legacy mode should be enabled.
-  // Since validateContract is now permissive (accepts any valid HTTPS URL), we only
-  // disable when the value is literally empty / unparseable — not for host mismatches.
-  const legacySubmitEnabled = !submitting && quantityValid && !!targetRequirements && legacyTargetValidation.valid;
+  // It is gated by isCardAwaitingConfirmation.
+  const legacySubmitEnabled =
+    !submitting &&
+    quantityValid &&
+    !!targetRequirements &&
+    legacyTargetValidation.valid &&
+    !isCardAwaitingConfirmation;
+
+  const dynamicSubmitEnabled =
+    !submitting &&
+    quantityValid &&
+    !!targetField &&
+    !!targetRequirements &&
+    normalizeTargetForService({
+      platformSlug,
+      targetType: service.target_type,
+      value: fieldValues[targetField?.key ?? ""] ?? "",
+    }).valid &&
+    !isCardAwaitingConfirmation;
 
   const renderDynamicFields = () => (
     <div className="configurator">
@@ -401,6 +451,9 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
             const nextValue = event.target.value;
             beginDifferentOrderIntent();
             setFieldValues((current) => ({ ...current, [field.key]: nextValue }));
+            if (isTarget) {
+              setPreviewConfirmed(false);
+            }
             if (fieldError) {
               setFieldErrors((current) => ({ ...current, [field.key]: "" }));
             }
@@ -422,30 +475,66 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
           {isTarget && targetRequirements ? <small>{targetRequirements.description} Example: {targetRequirements.example}</small> : field.helpText && <small>{field.helpText}</small>}
           {(fieldError || (isTarget && currentValue.trim().length > 0 && targetError)) && <p role="alert">{fieldError || targetError}</p>}
           {isTarget && (
-            <LinkPreviewCard
-              loading={previewLoading}
-              preview={previewData}
-              errorCode={previewErrorCode}
-              confirmed={previewConfirmed}
-              onConfirm={() => {
-                setPreviewConfirmed(true);
-                trackPreviewEvent("preview_confirmed");
-              }}
-              onChangeLink={() => {
-                setFieldValues((prev) => ({ ...prev, [field.key]: "" }));
-                setPreviewData(null);
-                setPreviewErrorCode(null);
-                setPreviewConfirmed(false);
-                trackPreviewEvent("preview_change_link");
-              }}
-            />
+            <div ref={previewCardRef}>
+              <LinkPreviewCard
+                loading={previewLoading}
+                preview={previewData}
+                errorCode={previewErrorCode}
+                confirmed={previewConfirmed}
+                platform={platform}
+                onConfirm={() => {
+                  setPreviewConfirmed(true);
+                  trackPreviewEvent("preview_confirmed");
+                }}
+                onUndoConfirm={() => {
+                  setPreviewConfirmed(false);
+                  trackPreviewEvent("preview_undo_confirm");
+                }}
+                onChangeLink={() => {
+                  setFieldValues((prev) => ({ ...prev, [field.key]: "" }));
+                  setPreviewData(null);
+                  setPreviewErrorCode(null);
+                  setPreviewConfirmed(false);
+                  setLastValidatedTarget("");
+                  trackPreviewEvent("preview_change_link");
+                }}
+                onContinueAnyway={() => {
+                  setPreviewConfirmed(true);
+                  if (previewData) {
+                    setPreviewData({ ...previewData, acknowledged_warning: true });
+                  } else {
+                    setPreviewData({
+                      title: null,
+                      authorName: "Unverified Content",
+                      providerName: platform || "Social",
+                      fetchedAt: new Date().toISOString(),
+                      acknowledged_warning: true,
+                    });
+                  }
+                  trackPreviewEvent("preview_acknowledged_warning");
+                }}
+              />
+            </div>
           )}
         </div>;
       })}
       <label>Quantity<input type="text" inputMode="numeric" value={quantityInput} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value.replace(/[^0-9]/g, "")); setError(""); }} onBlur={() => { if (quantityInput && !quantityValid) setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`); }} aria-invalid={Boolean(quantityInput) && !quantityValid} /></label>
       <div className="config-summary"><span>Total</span><strong>{service.currency} {total}</strong></div>
       {error && <p className="order-field-error" role="alert">{error}</p>}
-      <button className="service-action-link" type="button" onClick={submitDynamic} disabled={submitting || !quantityValid || !targetField || !targetRequirements || !normalizeTargetForService({ platformSlug, targetType: service.target_type, value: fieldValues[targetField?.key ?? ""] ?? "" }).valid}>{submitting ? "Checking fields…" : "Continue"}</button>
+      <button
+        className="service-action-link"
+        type="button"
+        onClick={submitDynamic}
+        disabled={!dynamicSubmitEnabled}
+        aria-describedby={isCardAwaitingConfirmation ? "dynamic-order-gate-helper" : undefined}
+      >
+        {submitting ? "Checking fields…" : "Continue to checkout"}
+      </button>
+      {isCardAwaitingConfirmation && (
+        <p id="dynamic-order-gate-helper" className="order-gate-helper" role="status">
+          Confirm the post above to continue
+        </p>
+      )}
     </div>
   );
 
@@ -482,31 +571,67 @@ export function ServiceConfigurator({ service, platform, platformSlug }: { servi
       <p className="order-form-intro">{isDynamic ? `Provide the requested details for this ${platform ?? "VANTA"} order.` : `Set the target and quantity for this ${platform ?? "VANTA"} service.`}</p>
       <div className="order-form-rate"><span>Rate per 1,000</span><strong>{service.currency} {formatCustomerRate(service.selling_rate)}</strong></div>
       {isDynamic ? renderDynamicFields() : <div className="configurator">
-        <label>{targetRequirements?.label ?? "Target URL"}<input type="url" required value={target} onChange={(event) => { beginDifferentOrderIntent(); setTarget(event.target.value); }} onBlur={() => { if (target.trim().length > 0) void cleanAndValidateTarget(target); }} placeholder={targetRequirements?.example ?? "https://..."} aria-invalid={target.trim().length > 0 && !legacyTargetValidation.valid} /></label>
+        <label>{targetRequirements?.label ?? "Target URL"}<input type="url" required value={target} onChange={(event) => { beginDifferentOrderIntent(); setTarget(event.target.value); setPreviewConfirmed(false); }} onBlur={() => { if (target.trim().length > 0) void cleanAndValidateTarget(target); }} placeholder={targetRequirements?.example ?? "https://..."} aria-invalid={target.trim().length > 0 && !legacyTargetValidation.valid} /></label>
         {targetRequirements ? <small>{targetRequirements.description} Example: {targetRequirements.example}</small> : <p role="alert">This service has an unsupported target configuration. Please contact support.</p>}
         {target.trim().length > 0 && !legacyTargetValidation.valid && <p className="order-field-error" role="alert">{legacyTargetValidation.reason}</p>}
-        <LinkPreviewCard
-          loading={previewLoading}
-          preview={previewData}
-          errorCode={previewErrorCode}
-          confirmed={previewConfirmed}
-          onConfirm={() => {
-            setPreviewConfirmed(true);
-            trackPreviewEvent("preview_confirmed");
-          }}
-          onChangeLink={() => {
-            setTarget("");
-            setPreviewData(null);
-            setPreviewErrorCode(null);
-            setPreviewConfirmed(false);
-            trackPreviewEvent("preview_change_link");
-          }}
-        />
+        <div ref={previewCardRef}>
+          <LinkPreviewCard
+            loading={previewLoading}
+            preview={previewData}
+            errorCode={previewErrorCode}
+            confirmed={previewConfirmed}
+            platform={platform}
+            onConfirm={() => {
+              setPreviewConfirmed(true);
+              trackPreviewEvent("preview_confirmed");
+            }}
+            onUndoConfirm={() => {
+              setPreviewConfirmed(false);
+              trackPreviewEvent("preview_undo_confirm");
+            }}
+            onChangeLink={() => {
+              setTarget("");
+              setPreviewData(null);
+              setPreviewErrorCode(null);
+              setPreviewConfirmed(false);
+              setLastValidatedTarget("");
+              trackPreviewEvent("preview_change_link");
+            }}
+            onContinueAnyway={() => {
+              setPreviewConfirmed(true);
+              if (previewData) {
+                setPreviewData({ ...previewData, acknowledged_warning: true });
+              } else {
+                setPreviewData({
+                  title: null,
+                  authorName: "Unverified Content",
+                  providerName: platform || "Social",
+                  fetchedAt: new Date().toISOString(),
+                  acknowledged_warning: true,
+                });
+              }
+              trackPreviewEvent("preview_acknowledged_warning");
+            }}
+          />
+        </div>
         <label>Quantity<input type="text" inputMode="numeric" value={quantityInput} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value.replace(/[^0-9]/g, "")); setError(""); }} onBlur={() => { if (quantityInput && !quantityValid) setError(`Quantity must be a whole number between ${service.min_quantity.toLocaleString()} and ${service.max_quantity.toLocaleString()}.`); }} aria-invalid={Boolean(quantityInput) && !quantityValid} /></label>
         <div className="quantity-tools"><input className="quantity-range" type="range" min={service.min_quantity} max={service.max_quantity} step="1" value={quantityValid ? quantity : service.min_quantity} onChange={(event) => { beginDifferentOrderIntent(); setQuantityInput(event.target.value); setError(""); }} aria-label="Choose quantity with slider" /><select aria-label="Choose a common quantity" value="" onChange={(event) => { if (event.target.value) { beginDifferentOrderIntent(); setQuantityInput(event.target.value); setError(""); } }}><option value="">Quick choose</option><option value={String(service.min_quantity)}>Minimum ({service.min_quantity.toLocaleString()})</option><option value={String(Math.min(service.max_quantity, service.min_quantity * 2))}>Starter</option><option value={String(Math.min(service.max_quantity, 1000))}>1,000</option><option value={String(Math.min(service.max_quantity, 10000))}>10,000</option></select></div>
         <div className="config-summary"><span>Total</span><strong>{service.currency} {total}</strong></div>
         {error && <p className="order-field-error" role="alert">{error}</p>}
-        <button className="service-action-link" type="button" onClick={submitLegacy} disabled={!legacySubmitEnabled}>{submitting ? "Creating order…" : "Continue to checkout"}</button>
+        <button
+          className="service-action-link"
+          type="button"
+          onClick={submitLegacy}
+          disabled={!legacySubmitEnabled}
+          aria-describedby={isCardAwaitingConfirmation ? "legacy-order-gate-helper" : undefined}
+        >
+          {submitting ? "Creating order…" : "Continue to checkout"}
+        </button>
+        {isCardAwaitingConfirmation && (
+          <p id="legacy-order-gate-helper" className="order-gate-helper" role="status">
+            Confirm the post above to continue
+          </p>
+        )}
       </div>}
     </div>
     <aside className="order-builder-summary">

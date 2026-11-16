@@ -247,14 +247,23 @@ export default async function AdminOrdersPage({
     }
   }
 
-  // Query orders. We exclude target_fix_status from the select string so orders load cleanly even if migration 000008 is not present.
+  // Query orders. We gracefully select core columns so orders load even before migration 000013 is applied.
   let query = db
     .from("orders")
     .select(
       "id,public_order_id,target_value,quantity,total,currency,payment_status,fulfillment_status,failure_reason,failure_detail,refund_status,refund_amount,created_at,profiles(email),services(name,platforms(name))",
       { count: countStrategy },
     );
-  if (params.payment) query = query.eq("payment_status", params.payment);
+  if (params.payment) {
+    if (params.payment === "ALL") {
+      // Show all payment states including unpaid
+    } else {
+      query = query.eq("payment_status", params.payment);
+    }
+  } else {
+    // Default: hide unpaid abandoned checkouts from the main queue
+    query = query.eq("payment_status", "PAID");
+  }
   if (params.fulfillment) query = query.eq("fulfillment_status", params.fulfillment);
   if (activeFailureReason) query = query.eq("failure_reason", activeFailureReason);
   if (activeTargetFix) query = query.eq("target_fix_status", activeTargetFix);
@@ -276,6 +285,53 @@ export default async function AdminOrdersPage({
   const { data: orders, count, error } = await query
     .order("created_at", { ascending: false })
     .limit(Math.min(limit, 100));
+
+  // Fetch all active services, platforms, and order counts to populate the Service and Platform filter dropdowns
+  const [
+    { data: filterServices },
+    { data: filterPlatforms },
+    { data: serviceOrderCountsRows },
+  ] = await Promise.all([
+    db.from("services").select("id, name, provider, platform_id, platforms(name)").order("name"),
+    db.from("platforms").select("id, name, slug").order("name"),
+    db.from("orders").select("service_id, payment_status, total, fulfillment_status"),
+  ]);
+
+  const serviceOrderCounts = new Map<string, number>();
+  let filteredTotalAmount = 0;
+  const statusCounts: Record<string, number> = {};
+
+  (serviceOrderCountsRows || []).forEach((row) => {
+    serviceOrderCounts.set(row.service_id, (serviceOrderCounts.get(row.service_id) || 0) + 1);
+  });
+
+  (orders || []).forEach((order) => {
+    filteredTotalAmount += Number(order.total || 0);
+    statusCounts[order.fulfillment_status] = (statusCounts[order.fulfillment_status] || 0) + 1;
+  });
+
+  // Build service dropdown options grouped with order counts and platform prefix
+  const serviceOptions = [
+    { value: "", label: "All services" },
+    ...(filterServices || []).map((s) => {
+      const pName = (s.platforms as { name?: string } | null)?.name || "";
+      const countForService = serviceOrderCounts.get(s.id) || 0;
+      const isRemoved = s.id === "00000000-0000-0000-0000-000000000001";
+      const displayName = isRemoved ? "[Removed Services]" : s.name;
+      return {
+        value: s.id,
+        label: `${pName ? `[${pName}] ` : ""}${displayName}${countForService > 0 ? ` (${countForService})` : ""}`,
+      };
+    }),
+  ];
+
+  const platformOptions = [
+    { value: "", label: "All platforms" },
+    ...(filterPlatforms || []).map((p) => ({
+      value: p.id,
+      label: p.name,
+    })),
+  ];
 
   if (error) {
     console.error("[AdminOrdersPage] orders query error:", error);
@@ -444,11 +500,23 @@ export default async function AdminOrdersPage({
           searchPlaceholder="Order ID or target"
           selects={[
             {
+              name: "service_id",
+              defaultValue: activeServiceId,
+              options: serviceOptions,
+            },
+            {
+              name: "platform_id",
+              defaultValue: activePlatformId,
+              options: platformOptions,
+            },
+            {
               name: "payment",
               defaultValue: params.payment ?? "",
               options: [
-                { value: "", label: "All payment states" },
-                ...["UNPAID", "PENDING", "PAID", "FAILED", "REFUNDED"].map((s) => ({ value: s, label: s })),
+                { value: "", label: "Paid orders (default)" },
+                { value: "ALL", label: "All orders (incl. unpaid)" },
+                { value: "UNPAID", label: "Unpaid / abandoned" },
+                ...["PENDING", "PAID", "FAILED", "REFUNDED"].map((s) => ({ value: s, label: s })),
               ],
             },
             {
@@ -472,18 +540,25 @@ export default async function AdminOrdersPage({
                 })),
               ],
             },
-            {
-              name: "target_fix",
-              defaultValue: activeTargetFix,
-              options: [
-                { value: "", label: "All target fix states" },
-                { value: "AWAITING_CUSTOMER", label: "Awaiting customer fix" },
-                { value: "FIXED", label: "Target fixed" },
-                { value: "EXPIRED", label: "Fix link expired" },
-              ],
-            },
           ]}
         />
+
+        {/* Results summary line */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", padding: "8px 12px", background: "rgba(255,255,255,0.02)", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)", marginTop: "12px", marginBottom: "14px", fontSize: "12px", color: "#a99bb2" }}>
+          <div>
+            Showing <strong style={{ color: "#fff" }}>{orders?.length ?? 0}</strong> order(s)
+            {filteredTotalAmount > 0 && (
+              <> · Total Amount: <strong style={{ color: "#34d399" }}>GHS {filteredTotalAmount.toFixed(2)}</strong></>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            {Object.entries(statusCounts).map(([status, cnt]) => (
+              <span key={status} style={{ fontSize: "11px" }}>
+                {status}: <strong style={{ color: "#fff" }}>{cnt}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
 
         {error ? (
           <AdminQueryError message="Orders could not be loaded. No empty-order state is being shown." />
@@ -514,8 +589,20 @@ export default async function AdminOrdersPage({
                     </td>
                     <td>{(order.profiles as { email?: string } | null)?.email ?? "—"}</td>
                     <td>
-                      <strong>{(order.services as { name?: string } | null)?.name ?? "—"}</strong>
-                      <small>{(order.services as { platforms?: { name?: string } | null } | null)?.platforms?.name ?? "—"}</small>
+                      {(() => {
+                        const sName = (order.services as { name?: string } | null)?.name || (order as { service_name_snapshot?: string }).service_name_snapshot;
+                        const pName = (order.services as { platforms?: { name?: string } | null } | null)?.platforms?.name || (order as { platform_snapshot?: string }).platform_snapshot;
+                        const isRemoved = !(order.services as { name?: string } | null)?.name && Boolean((order as { service_name_snapshot?: string }).service_name_snapshot);
+                        return (
+                          <>
+                            <strong>
+                              {sName || "—"}
+                              {isRemoved && <span style={{ fontSize: "11px", fontWeight: "normal", color: "#f87171", marginLeft: "4px" }}>(removed)</span>}
+                            </strong>
+                            <small>{pName ?? "—"}</small>
+                          </>
+                        );
+                      })()}
                     </td>
                     <td>{order.target_value}</td>
                     <td>{order.quantity.toLocaleString()}</td>

@@ -143,32 +143,42 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
 
                 <div className="checkout-specs-list">
                   {checkoutOrder.target_preview && (
-                    <div className="checkout-preview-box mb-4 flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
-                      {checkoutOrder.target_preview.thumbnailUrl ? (
-                        <img
-                          src={checkoutOrder.target_preview.thumbnailUrl}
-                          alt={checkoutOrder.target_preview.title || "Target preview"}
-                          className="h-14 w-20 shrink-0 rounded-lg object-cover border border-white/10"
-                        />
-                      ) : null}
-                      <div className="min-w-0 flex-1">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
-                          {checkoutOrder.target_preview.providerName || checkoutOrder.platform} Preview
-                        </span>
-                        {checkoutOrder.target_preview.title ? (
-                          <p className="line-clamp-1 text-xs font-medium text-white/90">
-                            {checkoutOrder.target_preview.title}
-                          </p>
-                        ) : checkoutOrder.target_preview.authorName ? (
-                          <p className="line-clamp-1 text-xs font-medium text-white/90">
-                            Video by {checkoutOrder.target_preview.authorName}
-                          </p>
-                        ) : null}
-                        {checkoutOrder.target_preview.title && checkoutOrder.target_preview.authorName && (
-                          <p className="text-[11px] text-white/50 truncate">
-                            {checkoutOrder.target_preview.authorName}
-                          </p>
+                    <div className="link-preview-card is-confirmed mb-4" style={{ margin: "0 0 16px 0" }}>
+                      <div className="preview-confirmed-layout">
+                        <div className="preview-confirmed-badge" aria-hidden="true">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </div>
+
+                        {checkoutOrder.target_preview.thumbnailUrl ? (
+                          <div className="preview-confirmed-thumb">
+                            <img
+                              src={checkoutOrder.target_preview.thumbnailUrl}
+                              alt={checkoutOrder.target_preview.title || "Target thumbnail"}
+                              className="preview-thumb-img"
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="preview-confirmed-avatar" aria-hidden="true">
+                            <span>{(checkoutOrder.target_preview.authorName || checkoutOrder.platform || "V").slice(0, 1).toUpperCase()}</span>
+                          </div>
                         )}
+
+                        <div className="preview-confirmed-info">
+                          <div className="preview-confirmed-header">
+                            <span className="preview-confirmed-tag">
+                              {checkoutOrder.target_preview.acknowledged_warning ? "Acknowledged" : "Confirmed"}
+                            </span>
+                            <span className="preview-pill">
+                              {checkoutOrder.target_preview.providerName || checkoutOrder.platform}
+                            </span>
+                          </div>
+                          <p className="preview-confirmed-title">
+                            {checkoutOrder.target_preview.title || (checkoutOrder.target_preview.authorName ? `Post by ${checkoutOrder.target_preview.authorName}` : checkoutOrder.target_value)}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   )}

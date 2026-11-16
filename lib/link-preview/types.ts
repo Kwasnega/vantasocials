@@ -17,6 +17,7 @@ export interface LinkPreviewData {
   thumbnailUrl?: string | null;
   providerName: string;
   fetchedAt: string;
+  acknowledged_warning?: boolean;
 }
 
 export type LinkPreviewResult =

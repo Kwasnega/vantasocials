@@ -9,8 +9,11 @@ interface LinkPreviewCardProps {
   preview: LinkPreviewData | null;
   errorCode: LinkPreviewErrorCode | null;
   confirmed: boolean;
+  platform?: string;
   onConfirm: () => void;
+  onUndoConfirm?: () => void;
   onChangeLink: () => void;
+  onContinueAnyway?: () => void;
 }
 
 export function LinkPreviewCard({
@@ -18,131 +21,224 @@ export function LinkPreviewCard({
   preview,
   errorCode,
   confirmed,
+  platform,
   onConfirm,
+  onUndoConfirm,
   onChangeLink,
+  onContinueAnyway,
 }: LinkPreviewCardProps) {
-  // If unsupported, rate-limited, or unavailable without a warning state, show nothing silently
+  // If unsupported, rate-limited, timeout or unavailable without a warning state, show nothing silently
   if (!loading && !preview && (!errorCode || errorCode === "UNSUPPORTED" || errorCode === "RATE_LIMITED" || errorCode === "TIMEOUT" || errorCode === "UNAVAILABLE")) {
     return null;
   }
 
-  return (
-    <div
-      className="mt-3 rounded-xl border border-white/10 bg-black/40 p-3 text-sm backdrop-blur-md transition-all duration-200"
-      aria-live="polite"
-    >
-      {loading ? (
-        <div className="flex items-center gap-3 animate-pulse">
-          <div className="h-14 w-20 shrink-0 rounded-lg bg-white/10" />
-          <div className="flex-1 space-y-2">
-            <div className="h-3.5 w-3/4 rounded bg-white/10" />
-            <div className="h-3 w-1/2 rounded bg-white/5" />
+  // 1. Loading Skeleton State
+  if (loading) {
+    return (
+      <section
+        className="link-preview-card is-loading"
+        aria-label="Link validation"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div className="preview-skeleton-layout">
+          <div className="preview-skeleton-media" />
+          <div className="preview-skeleton-content">
+            <div className="preview-skeleton-line short" />
+            <div className="preview-skeleton-line title" />
+            <div className="preview-skeleton-line author" />
           </div>
         </div>
-      ) : errorCode === "NOT_FOUND" ? (
-        <div className="flex items-start justify-between gap-3 text-amber-300">
-          <div className="flex items-center gap-2">
-            <span className="text-base" aria-hidden="true">⚠️</span>
-            <p className="text-xs text-amber-200/90">
-              We couldn&apos;t find this post. Double-check the link.
+        <span className="sr-only">Validating link preview…</span>
+      </section>
+    );
+  }
+
+  // 2. Warning State: NOT_FOUND or PRIVATE_OR_REMOVED
+  const isWarning = errorCode === "NOT_FOUND" || errorCode === "PRIVATE_OR_REMOVED";
+  if (isWarning && !confirmed) {
+    const isNotFound = errorCode === "NOT_FOUND";
+    return (
+      <section
+        className="link-preview-card is-warning"
+        aria-label="Link warning"
+        aria-live="assertive"
+      >
+        <div className="preview-warning-body">
+          <div className="preview-warning-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <div className="preview-warning-text">
+            <h4 className="preview-warning-title">
+              {isNotFound ? "Post Not Found" : "Content May Be Private or Removed"}
+            </h4>
+            <p className="preview-warning-desc">
+              {isNotFound
+                ? "We couldn't locate this post. Double-check the URL to ensure it is public and correct."
+                : "This post may be restricted or deleted. Automated orders on private content cannot be fulfilled."}
             </p>
           </div>
+        </div>
+
+        <div className="preview-card-actions">
           <button
             type="button"
             onClick={onChangeLink}
-            className="shrink-0 text-xs text-white/70 hover:text-white underline min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="preview-btn-primary"
           >
-            Change
+            Change link
           </button>
+          {onContinueAnyway && (
+            <button
+              type="button"
+              onClick={onContinueAnyway}
+              className="preview-btn-secondary"
+            >
+              Continue anyway
+            </button>
+          )}
         </div>
-      ) : errorCode === "PRIVATE_OR_REMOVED" ? (
-        <div className="flex items-start justify-between gap-3 text-amber-300">
-          <div className="flex items-center gap-2">
-            <span className="text-base" aria-hidden="true">🔒</span>
-            <p className="text-xs text-amber-200/90">
-              This post may be private or removed. Orders on private content can&apos;t be delivered.
-            </p>
+      </section>
+    );
+  }
+
+  // If preview is null and not warning/loading, return null
+  if (!preview) return null;
+
+  const providerName = preview.providerName || platform || "Social";
+  const authorDisplay = preview.authorName || "Creator";
+
+  // 3. Compact Confirmed State
+  if (confirmed) {
+    return (
+      <section
+        className="link-preview-card is-confirmed"
+        aria-label="Confirmed target preview"
+        aria-live="polite"
+      >
+        <div className="preview-confirmed-layout">
+          <div className="preview-confirmed-badge" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
           </div>
-          <button
-            type="button"
-            onClick={onChangeLink}
-            className="shrink-0 text-xs text-white/70 hover:text-white underline min-h-[44px] min-w-[44px] flex items-center justify-center"
-          >
-            Change
-          </button>
-        </div>
-      ) : preview ? (
-        <div className="space-y-3">
-          {/* If there is no title and no thumbnail (e.g. TikTok video link), render compact card */}
-          {!preview.title && !preview.thumbnailUrl ? (
-            <div className="flex items-center gap-2">
-              <span className="inline-block rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
-                {preview.providerName}
-              </span>
-              <p className="text-xs font-medium text-white/90">
-                Video by {preview.authorName}
-              </p>
+
+          {preview.thumbnailUrl ? (
+            <div className="preview-confirmed-thumb">
+              <Image
+                src={preview.thumbnailUrl}
+                alt={preview.title || "Confirmed thumbnail"}
+                fill
+                sizes="48px"
+                className="preview-thumb-img"
+              />
             </div>
           ) : (
-            <div className="flex items-start gap-3">
-              {preview.thumbnailUrl ? (
-                <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-white/5">
-                  <Image
-                    src={preview.thumbnailUrl}
-                    alt={preview.title || "Preview thumbnail"}
-                    fill
-                    sizes="96px"
-                    className="object-cover"
-                  />
-                </div>
-              ) : (
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/40 font-mono text-xs">
-                  {preview.providerName}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <span className="inline-block text-[10px] uppercase tracking-wider font-semibold text-emerald-400">
-                  {preview.providerName}
-                </span>
-                {preview.title && (
-                  <h4 className="line-clamp-2 text-xs font-medium text-white/90 leading-snug">
-                    {preview.title}
-                  </h4>
-                )}
-                {preview.authorName && (
-                  <p className="mt-0.5 text-[11px] text-white/50 truncate">
-                    {preview.authorName}
-                  </p>
-                )}
-              </div>
+            <div className="preview-confirmed-avatar" aria-hidden="true">
+              <span>{authorDisplay.slice(0, 1).toUpperCase()}</span>
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-white/5 pt-2 text-xs">
-            <span className="text-white/60">Is this the right post?</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onChangeLink}
-                className="text-white/50 hover:text-white/90 px-2 py-1 min-h-[44px] flex items-center justify-center"
-              >
-                Change link
-              </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                className={`rounded-md px-3 py-1 font-medium min-h-[44px] flex items-center justify-center transition-colors ${
-                  confirmed
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                    : "bg-white/10 hover:bg-white/20 text-white"
-                }`}
-              >
-                {confirmed ? "✓ Confirmed" : "Yes, continue"}
-              </button>
+          <div className="preview-confirmed-info">
+            <div className="preview-confirmed-header">
+              <span className="preview-confirmed-tag">Confirmed</span>
+              <span className="preview-pill">{providerName}</span>
             </div>
+            <p className="preview-confirmed-title">
+              {preview.title || `Post by ${authorDisplay}`}
+            </p>
+          </div>
+
+          <div className="preview-confirmed-actions">
+            <button
+              type="button"
+              onClick={onUndoConfirm || onChangeLink}
+              className="preview-btn-text"
+              aria-label="Change or undo confirmation"
+            >
+              Change
+            </button>
           </div>
         </div>
-      ) : null}
-    </div>
+      </section>
+    );
+  }
+
+  // 4. Full Confirmation Required State
+  const hasThumbnail = Boolean(preview.thumbnailUrl);
+
+  return (
+    <section
+      className="link-preview-card is-unconfirmed"
+      aria-label="Post verification"
+      aria-live="polite"
+    >
+      <div className="preview-card-body">
+        {hasThumbnail ? (
+          <div className="preview-media-thumb">
+            <Image
+              src={preview.thumbnailUrl!}
+              alt={preview.title || "Post thumbnail"}
+              fill
+              sizes="(max-width: 600px) 100vw, 136px"
+              className="preview-thumb-img"
+            />
+          </div>
+        ) : (
+          <div className="preview-media-avatar" aria-label={`${authorDisplay}'s profile`}>
+            <span className="preview-avatar-letter">
+              {authorDisplay.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="preview-avatar-mark">{providerName.slice(0, 1)}</span>
+          </div>
+        )}
+
+        <div className="preview-card-details">
+          <div className="preview-card-header">
+            <span className="preview-pill">{providerName}</span>
+            {preview.authorName && (
+              <span className="preview-author-meta truncate">
+                by <strong>{preview.authorName}</strong>
+              </span>
+            )}
+          </div>
+
+          {preview.title ? (
+            <h4 className="preview-title" title={preview.title}>
+              {preview.title}
+            </h4>
+          ) : (
+            <h4 className="preview-title fallback">
+              Video by {authorDisplay}
+            </h4>
+          )}
+
+          <h5 className="preview-prompt-question">Is this the right post?</h5>
+        </div>
+      </div>
+
+      <div className="preview-card-actions">
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="preview-btn-primary"
+          aria-label="Confirm this is the right post and proceed"
+        >
+          Yes, this is it
+        </button>
+        <button
+          type="button"
+          onClick={onChangeLink}
+          className="preview-btn-text"
+          aria-label="Change target link"
+        >
+          Change link
+        </button>
+      </div>
+    </section>
   );
 }

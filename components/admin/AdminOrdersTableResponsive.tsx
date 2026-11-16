@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import { OrderStageIndicator, FailureReasonBadge } from "./OrderBadges";
 import { AdminOrderRefundButton } from "./AdminOrderRefundButton";

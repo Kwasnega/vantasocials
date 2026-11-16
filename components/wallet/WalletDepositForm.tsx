@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-type DepositLimits = {
+export type DepositLimits = {
   minDepositGhs: number;
   maxDepositGhs: number;
   formattedMin: string;
@@ -15,20 +15,29 @@ const DEFAULT_LIMITS: DepositLimits = {
   formattedMax: "10,000.00",
 };
 
-export default function WalletDepositForm({ initialAmount, returnTo }: { initialAmount?: string; returnTo?: string }) {
-  const [limits, setLimits] = useState<DepositLimits>(DEFAULT_LIMITS);
-  const [amount, setAmount] = useState(initialAmount || DEFAULT_LIMITS.formattedMin);
+export default function WalletDepositForm({
+  initialAmount,
+  returnTo,
+  initialLimits,
+}: {
+  initialAmount?: string;
+  returnTo?: string;
+  initialLimits?: DepositLimits;
+}) {
+  const activeInitialLimits = initialLimits || DEFAULT_LIMITS;
+  const [limits, setLimits] = useState<DepositLimits>(activeInitialLimits);
+  const [amount, setAmount] = useState(initialAmount || activeInitialLimits.formattedMin);
   const [hasEdited, setHasEdited] = useState(Boolean(initialAmount));
   const [state, setState] = useState<"idle" | "loading" | "redirecting" | "error">("idle");
   const [message, setMessage] = useState("");
   const idempotencyKey = useRef(crypto.randomUUID());
 
-  // Fetch live deposit limits with short client cache
+  // Fetch live deposit limits with cache-busting
   useEffect(() => {
     let active = true;
     async function loadLimits() {
       try {
-        const res = await fetch("/api/settings/deposit-limits");
+        const res = await fetch("/api/settings/deposit-limits", { cache: "no-store" });
         if (!res.ok) return;
         const data = await res.json();
         if (active && data && typeof data.minDepositGhs === "number") {
@@ -42,7 +51,7 @@ export default function WalletDepositForm({ initialAmount, returnTo }: { initial
           // Set initial amount only if user hasn't specified initialAmount and hasn't started typing
           setAmount((prev) => {
             if (initialAmount) return initialAmount;
-            if (!hasEdited || prev === DEFAULT_LIMITS.formattedMin) {
+            if (!hasEdited || prev === DEFAULT_LIMITS.formattedMin || prev === activeInitialLimits.formattedMin) {
               return loaded.formattedMin;
             }
             return prev;

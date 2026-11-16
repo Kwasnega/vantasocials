@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getMinDepositSetting, DEFAULT_MIN_DEPOSIT_GHS, MAX_DEPOSIT_GHS } from "../../../../lib/settings/deposit-settings";
 
-export const revalidate = 30; // Cache for 30s in Next.js data cache
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
@@ -14,7 +14,9 @@ export async function GET() {
       updatedAt: setting.updatedAt,
     }, {
       headers: {
-        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
       },
     });
   } catch (err) {
@@ -25,6 +27,10 @@ export async function GET() {
       formattedMin: DEFAULT_MIN_DEPOSIT_GHS.toFixed(2),
       formattedMax: MAX_DEPOSIT_GHS.toLocaleString("en-US", { minimumFractionDigits: 2 }),
       updatedAt: null,
+    }, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      },
     });
   }
 }

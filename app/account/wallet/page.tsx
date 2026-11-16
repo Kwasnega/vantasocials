@@ -3,6 +3,7 @@ import { requireUser } from "../../../lib/auth/require-user";
 import WalletDepositForm from "../../../components/wallet/WalletDepositForm";
 import WalletDepositStatus from "../../../components/wallet/WalletDepositStatus";
 import { settlePendingDeposits } from "../../../lib/wallet/settle-pending";
+import { getMinDepositSetting, MAX_DEPOSIT_GHS } from "../../../lib/settings/deposit-settings";
 
 function formatTransactionReference(reference: string, orderId: string | null) {
   if (orderId) return `Order ${orderId.slice(0, 8).toUpperCase()}`;
@@ -40,6 +41,15 @@ export default async function AccountWalletPage({
     .limit(1);
 
   const hasPendingDeposits = Boolean(pendingDeps && pendingDeps.length > 0);
+
+  // Read current deposit limits server-side for zero-latency initial render
+  const minDepositSetting = await getMinDepositSetting();
+  const initialLimits = {
+    minDepositGhs: minDepositSetting.minDepositGhs,
+    maxDepositGhs: MAX_DEPOSIT_GHS,
+    formattedMin: minDepositSetting.minDepositGhs.toFixed(2),
+    formattedMax: MAX_DEPOSIT_GHS.toLocaleString("en-US", { minimumFractionDigits: 2 }),
+  };
 
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   const limit = 20;
@@ -89,7 +99,7 @@ export default async function AccountWalletPage({
             <span aria-hidden="true" /> Available to spend
           </span>
         </article>
-        <WalletDepositForm initialAmount={params.amount} returnTo={params.return_to} />
+        <WalletDepositForm initialAmount={params.amount} returnTo={params.return_to} initialLimits={initialLimits} />
       </div>
       <section className="wallet-transactions">
         <div className="dashboard-card-heading">

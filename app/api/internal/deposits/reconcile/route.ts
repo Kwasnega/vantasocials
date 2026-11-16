@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   // Find deposits in non-final status older than 30 minutes
   const { data: deposits, error } = await admin
     .from("wallet_deposit_payments")
-    .select("id,user_id,wallet_id,reference,amount_minor,currency,status,created_at,provider_response")
+    .select("id,user_id,wallet_id,reference,amount_minor,currency,status,created_at,provider_response,is_reconciled")
     .not("status", "in", '("PAID","FAILED","ABANDONED")')
     .lt("created_at", thirtyMinsAgo)
     .order("created_at", { ascending: true })
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     const pResp = (dep.provider_response && typeof dep.provider_response === "object" ? dep.provider_response : {}) as Record<string, any>;
 
     // Skip reconciled deposits (already compensated)
-    if (pResp.reconciled === true) {
+    if (pResp.reconciled === true || dep.is_reconciled === true) {
       results.push({
         id: dep.id,
         reference: dep.reference,

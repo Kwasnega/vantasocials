@@ -448,85 +448,164 @@ export function CustomerDetailTabs({
               No orders matching filter.
             </div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table className="dashboard-table" style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th>Order ID</th>
-                    <th>Date</th>
-                    <th>Service</th>
-                    <th>Qty</th>
-                    <th>Total</th>
-                    <th>Payment</th>
-                    <th>Fulfillment</th>
-                    <th>Failure Reason</th>
-                    <th>Refund</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOrders.map((o) => (
-                    <tr key={o.id}>
-                      <td>
-                        <Link href={`/admin/orders/${o.publicOrderId}`} style={{ color: "#a5b4fc", fontWeight: 600, textDecoration: "none" }}>
-                          {o.publicOrderId}
-                        </Link>
-                      </td>
-                      <td style={{ fontSize: "12px", color: "rgba(255,255,255,0.6)", whiteSpace: "nowrap" }}>
-                        {new Date(o.createdAt).toLocaleDateString()}
-                      </td>
-                      <td style={{ maxWidth: "260px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
-                          <span style={{ fontSize: "10px", padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(255,255,255,0.1)", color: "#fff", fontWeight: 600 }}>
-                            {o.platformName}
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            display: "-webkit-box",
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: "vertical",
-                            overflow: "hidden",
-                            lineHeight: 1.3,
-                          }}
-                          title={o.serviceName}
-                        >
-                          {o.serviceName}
-                        </div>
-                      </td>
-                      <td>{o.quantity.toLocaleString()}</td>
-                      <td><strong>{o.currency} {o.total.toFixed(2)}</strong></td>
-                      <td>
-                        <span
-                          style={{
-                            fontSize: "11px",
-                            fontWeight: 700,
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                            backgroundColor: o.paymentStatus === "PAID" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
-                            color: o.paymentStatus === "PAID" ? "#34d399" : "#f87171",
-                          }}
-                        >
-                          {o.paymentStatus}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`admin-status ${o.fulfillmentStatus.toLowerCase()}`}>{o.fulfillmentStatus}</span>
-                      </td>
-                      <td style={{ fontSize: "11px", color: o.failureReason ? "#f87171" : "rgba(255,255,255,0.4)" }}>
-                        {o.failureReason || "—"}
-                      </td>
-                      <td>
-                        {o.refundStatus === "REFUNDED" ? (
-                          <span style={{ fontSize: "11px", color: "#c084fc", fontWeight: 600 }}>✓ Refunded</span>
-                        ) : (
-                          <span style={{ color: "rgba(255,255,255,0.4)" }}>—</span>
-                        )}
-                      </td>
+            <div>
+              {/* Desktop view */}
+              <div className="admin-orders-desktop-view" style={{ overflowX: "auto", width: "100%" }}>
+                <table className="dashboard-table" style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: "12px" }}>
+                  <colgroup>
+                    <col style={{ width: "120px" }} />
+                    <col style={{ width: "95px" }} />
+                    <col style={{ width: "230px" }} />
+                    <col style={{ width: "80px" }} />
+                    <col style={{ width: "105px" }} />
+                    <col style={{ width: "95px" }} />
+                    <col style={{ width: "120px" }} />
+                    <col style={{ width: "120px" }} />
+                    <col style={{ width: "90px" }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: "10px 8px" }}>Order ID</th>
+                      <th style={{ padding: "10px 8px" }}>Date</th>
+                      <th style={{ padding: "10px 8px" }}>Service</th>
+                      <th style={{ padding: "10px 8px" }}>Qty</th>
+                      <th style={{ padding: "10px 8px" }}>Total</th>
+                      <th style={{ padding: "10px 8px" }}>Payment</th>
+                      <th style={{ padding: "10px 8px" }}>Fulfillment</th>
+                      <th style={{ padding: "10px 8px" }}>Failure Reason</th>
+                      <th style={{ padding: "10px 8px" }}>Refund</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredOrders.map((o) => (
+                      <tr key={o.id}>
+                        <td style={{ padding: "10px 8px", verticalAlign: "top" }}>
+                          <Link href={`/admin/orders/${o.publicOrderId}`} style={{ color: "#a5b4fc", fontWeight: 700, textDecoration: "none" }}>
+                            {o.publicOrderId}
+                          </Link>
+                        </td>
+                        <td style={{ padding: "10px 8px", fontSize: "12px", color: "rgba(255,255,255,0.6)", whiteSpace: "nowrap", verticalAlign: "top" }}>
+                          {new Date(o.createdAt).toLocaleDateString()}
+                        </td>
+                        <td style={{ padding: "10px 8px", verticalAlign: "top" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
+                            <span style={{ fontSize: "10px", padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(255,255,255,0.1)", color: "#fff", fontWeight: 600 }}>
+                              {o.platformName}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                              lineHeight: 1.3,
+                            }}
+                            title={o.serviceName}
+                          >
+                            {o.serviceName}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 8px", verticalAlign: "top" }}>{o.quantity.toLocaleString()}</td>
+                        <td style={{ padding: "10px 8px", verticalAlign: "top" }}><strong>{o.currency} {o.total.toFixed(2)}</strong></td>
+                        <td style={{ padding: "10px 8px", verticalAlign: "top" }}>
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              backgroundColor: o.paymentStatus === "PAID" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                              color: o.paymentStatus === "PAID" ? "#34d399" : "#f87171",
+                            }}
+                          >
+                            {o.paymentStatus}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 8px", verticalAlign: "top" }}>
+                          <span className={`admin-status ${o.fulfillmentStatus.toLowerCase()}`}>{o.fulfillmentStatus}</span>
+                        </td>
+                        <td style={{ padding: "10px 8px", fontSize: "11px", color: o.failureReason ? "#f87171" : "rgba(255,255,255,0.4)", verticalAlign: "top" }}>
+                          {o.failureReason || "—"}
+                        </td>
+                        <td style={{ padding: "10px 8px", verticalAlign: "top" }}>
+                          {o.refundStatus === "REFUNDED" ? (
+                            <span style={{ fontSize: "11px", color: "#c084fc", fontWeight: 600 }}>✓ Refunded</span>
+                          ) : (
+                            <span style={{ color: "rgba(255,255,255,0.4)" }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile stacked cards (<900px) */}
+              <div className="admin-orders-mobile-cards" style={{ display: "none", flexDirection: "column", gap: "10px" }}>
+                {filteredOrders.map((o) => (
+                  <div
+                    key={o.id}
+                    style={{
+                      padding: "12px",
+                      borderRadius: "10px",
+                      backgroundColor: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Link href={`/admin/orders/${o.publicOrderId}`} style={{ color: "#a5b4fc", fontWeight: 700, textDecoration: "none", fontSize: "13px" }}>
+                        {o.publicOrderId}
+                      </Link>
+                      <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>
+                        {new Date(o.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#fff" }}>
+                      <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(255,255,255,0.1)", marginRight: "6px" }}>
+                        {o.platformName}
+                      </span>
+                      {o.serviceName}
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", marginTop: "4px" }}>
+                      <span>Qty: <strong>{o.quantity.toLocaleString()}</strong></span>
+                      <strong style={{ color: "#34d399" }}>{o.currency} {o.total.toFixed(2)}</strong>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginTop: "4px" }}>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          backgroundColor: o.paymentStatus === "PAID" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                          color: o.paymentStatus === "PAID" ? "#34d399" : "#f87171",
+                        }}
+                      >
+                        {o.paymentStatus}
+                      </span>
+                      <span className={`admin-status ${o.fulfillmentStatus.toLowerCase()}`} style={{ fontSize: "10px" }}>
+                        {o.fulfillmentStatus}
+                      </span>
+                      {o.failureReason && (
+                        <span style={{ fontSize: "10px", color: "#f87171" }}>
+                          {o.failureReason}
+                        </span>
+                      )}
+                      {o.refundStatus === "REFUNDED" && (
+                        <span style={{ fontSize: "10px", color: "#c084fc", fontWeight: 600 }}>✓ Refunded</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </section>

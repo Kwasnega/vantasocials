@@ -15,7 +15,7 @@ export async function POST(
   // 1. Fetch deposit
   const { data: deposit, error: depErr } = await db
     .from("wallet_deposit_payments")
-    .select("id,user_id,wallet_id,reference,provider_reference,amount_minor,currency,status,provider_response")
+    .select("id,user_id,wallet_id,reference,provider_reference,amount_minor,currency,status,provider_response,is_reconciled")
     .eq("id", depositId)
     .eq("user_id", customerId)
     .maybeSingle();
@@ -30,7 +30,7 @@ export async function POST(
       ? (deposit.provider_response as Record<string, any>)
       : {};
 
-  if (pResponse.reconciled === true) {
+  if (pResponse.reconciled === true || deposit.is_reconciled === true) {
     return NextResponse.json(
       { error: "Deposit is already marked as reconciled. It cannot be credited to prevent double-compensation." },
       { status: 409 }

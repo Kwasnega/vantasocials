@@ -65,14 +65,14 @@ export async function POST(request: Request) {
 
     if (!claimed || !processingToken) return NextResponse.json({ received: true });
 
-    const { data: byReference } = await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status,provider_response").eq("reference", reference).maybeSingle();
-    const { data: byProviderReference } = byReference ? { data: null } : await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status,provider_response").eq("provider_reference", reference).maybeSingle();
+    const { data: byReference } = await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status,provider_response,is_reconciled").eq("reference", reference).maybeSingle();
+    const { data: byProviderReference } = byReference ? { data: null } : await admin.from("wallet_deposit_payments").select("id,user_id,amount_minor,currency,status,provider_response,is_reconciled").eq("provider_reference", reference).maybeSingle();
     const deposit = byReference || byProviderReference;
 
     if (deposit) {
       const pResp = (deposit.provider_response && typeof deposit.provider_response === "object" ? deposit.provider_response : {}) as Record<string, any>;
       // Skip if already reconciled
-      if (!pResp.reconciled) {
+      if (!pResp.reconciled && deposit.is_reconciled !== true) {
         const verified = await verifyPaystack(reference);
         const tx = verified.data || {};
         if (tx.status === "success" && String(tx.reference || "") === reference && String(tx.amount || "") === String(deposit.amount_minor) && String(tx.currency || "") === "GHS") {

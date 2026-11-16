@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, createSupabaseAdminClient } from "../../../../../../lib/supabase/server";
 import { verifyPaystack } from "../../../../../../lib/payments/paystack";
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../../../lib/security/rate-limit";
+import { recordDepositCheck } from "../../../../../../lib/wallet/settle-pending";
+import { formatError } from "../../../../../../lib/errors/format-error";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -20,6 +22,14 @@ export async function POST(request: Request) {
 
     const pResp = (deposit.provider_response && typeof deposit.provider_response === "object" ? deposit.provider_response : {}) as Record<string, any>;
     if (pResp.reconciled === true || deposit.is_reconciled === true) {
+      await recordDepositCheck({
+        depositId: deposit.id,
+        reference,
+        status: "SKIPPED_RECONCILED",
+        gatewayResponse: "Deposit is marked as reconciled; skipping credit.",
+        rawResponse: { reconciled: true },
+        checkedBy: user.id,
+      });
       return NextResponse.json({
         status: "RECONCILED",
         reference,
@@ -33,14 +43,48 @@ export async function POST(request: Request) {
     const providerReference = String(tx.reference || "");
     const amount = String(tx.amount || "");
     const currency = String(tx.currency || "");
+    const paystackStatus = String(tx.status || "");
+    const gatewayResponse = String(tx.gateway_response || "");
+    const paidAt = typeof tx.paid_at === "string" ? tx.paid_at : null;
+
+    await recordDepositCheck({
+      depositId: deposit.id,
+      reference,
+      status: paystackStatus === "success" ? "VERIFIED_SUCCESS" : "VERIFIED_NON_SUCCESS",
+      paystackStatus,
+      amountMinor: BigInt(deposit.amount_minor),
+      currency: String(deposit.currency),
+      paidAt,
+      gatewayResponse,
+      rawResponse: tx,
+      checkedBy: user.id,
+    });
+
     if (tx.status !== "success") return NextResponse.json({ status: "PENDING", reference });
     if (providerReference !== reference || amount !== String(deposit.amount_minor) || currency !== "GHS") return NextResponse.json({ status: "FAILED", reference }, { status: 400 });
     const { data: credited, error: creditError } = await admin.rpc("credit_wallet_deposit", { p_deposit_id: deposit.id, p_user_id: user.id, p_provider_reference: providerReference, p_amount_minor: BigInt(deposit.amount_minor).toString(), p_currency: "GHS" });
-    if (creditError) throw creditError;
+    if (creditError) {
+      if (creditError.message?.includes("DEPOSIT_RECONCILED")) {
+        await recordDepositCheck({
+          depositId: deposit.id,
+          reference,
+          status: "SKIPPED_RECONCILED",
+          gatewayResponse: "credit_wallet_deposit refused reconciled deposit in verify",
+          rawResponse: { error: creditError.message },
+          checkedBy: user.id,
+        });
+        return NextResponse.json({
+          status: "RECONCILED",
+          reference,
+          message: "Deposit was already compensated manually and marked as reconciled.",
+        });
+      }
+      throw creditError;
+    }
     return NextResponse.json({ status: "PAID", reference, transaction_id: credited?.id ?? null });
   } catch (error) {
-    const details = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error;
-    console.error("Wallet deposit verification failed", JSON.stringify(details));
+    const formatted = formatError(error);
+    console.error("Wallet deposit verification failed:", formatted);
     return NextResponse.json({ error: "Unable to verify wallet deposit." }, { status: 502 });
   }
 }

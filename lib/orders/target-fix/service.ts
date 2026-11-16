@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "../../supabase/server";
 import { recordOrderEvent } from "../events";
 import { retryOrderFulfillment, type RetryResult } from "../../fulfillment/retry-service";
 import { normalizeTargetServer as normalizeTarget } from "../../targets/normalize-server";
+import { getCanonicalSiteOrigin } from "../../network/origin";
 import { sendTransactionalEmail, renderTargetFixEmail, renderTargetFixSuccessEmail } from "../../email";
 import { hashToken, generateFixToken, constantTimeCompare } from "./tokens/crypto";
 
@@ -126,8 +127,8 @@ export async function createAndSendFixToken(params: {
   });
 
   // 6. Send email
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://vantasocials.com";
-  const fixUrl = `${siteUrl.replace(/\/$/, "")}/fix-order/${rawToken}`;
+  const siteUrl = getCanonicalSiteOrigin();
+  const fixUrl = `${siteUrl}/fix-order/${rawToken}`;
   const serviceName = (order.services as { name?: string } | null)?.name || "Service";
 
   const emailContent = renderTargetFixEmail({

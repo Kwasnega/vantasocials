@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "../../../lib/auth/require-user";
 import WalletDepositForm from "../../../components/wallet/WalletDepositForm";
 import WalletDepositStatus from "../../../components/wallet/WalletDepositStatus";
+import { settlePendingDeposits } from "../../../lib/wallet/settle-pending";
 
 function formatTransactionReference(reference: string, orderId: string | null) {
   if (orderId) return `Order ${orderId.slice(0, 8).toUpperCase()}`;
@@ -12,10 +13,34 @@ function formatTransactionReference(reference: string, orderId: string | null) {
 export default async function AccountWalletPage({
   searchParams,
 }: {
-  searchParams: Promise<{ deposit_reference?: string; type?: string; page?: string; amount?: string; return_to?: string }>;
+  searchParams: Promise<{ deposit_reference?: string; reference?: string; trxref?: string; type?: string; page?: string; amount?: string; return_to?: string }>;
 }) {
   const { user, db } = await requireUser("/account/wallet");
   const params = await searchParams;
+
+  // Accept deposit_reference, reference, or trxref from Paystack callback
+  const effectiveReference = params.deposit_reference || params.reference || params.trxref;
+
+  // Run self-heal on load if user has pending deposits
+  let healResult = { creditedCount: 0, totalCreditedMinor: 0n };
+  try {
+    healResult = await settlePendingDeposits(user.id);
+  } catch (err) {
+    // Non-blocking
+  }
+
+  // Check if user still has non-final deposits within 24h
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: pendingDeps } = await db
+    .from("wallet_deposit_payments")
+    .select("id")
+    .eq("user_id", user.id)
+    .in("status", ["AUTHORIZED", "PENDING", "INITIALIZING"])
+    .gte("created_at", twentyFourHoursAgo)
+    .limit(1);
+
+  const hasPendingDeposits = Boolean(pendingDeps && pendingDeps.length > 0);
+
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   const limit = 20;
   const type = params.type ?? "ALL";
@@ -36,7 +61,13 @@ export default async function AccountWalletPage({
 
   return (
     <>
-      <WalletDepositStatus reference={params.deposit_reference} returnTo={params.return_to} />
+      <WalletDepositStatus
+        reference={effectiveReference}
+        returnTo={params.return_to}
+        hasPendingDeposits={hasPendingDeposits}
+        initialHealCount={healResult.creditedCount}
+        initialHealTotalGhs={(Number(healResult.totalCreditedMinor) / 100).toFixed(2)}
+      />
       <header className="dashboard-header wallet-header">
         <p className="dashboard-kicker">WALLET</p>
         <h1>Your wallet<span>.</span></h1>

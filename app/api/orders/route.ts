@@ -15,6 +15,7 @@ import { captureServerEvent } from "../../../lib/posthog/server";
 import { flushPostHogLogs, logPostHogInfo } from "../../../lib/posthog/logs";
 import { normalizeTargetServer as normalizeTarget } from "../../../lib/targets/normalize-server";
 import { getServiceBlockStatus } from "../../../lib/provider-balance/service-block";
+import { settlePendingDeposits } from "../../../lib/wallet/settle-pending";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const IDEMPOTENCY_CONSTRAINT = "orders_user_id_idempotency_key_key";
@@ -335,7 +336,7 @@ export async function POST(request: Request) {
     }
 
     // Server-side check for sufficient wallet balance: do NOT create order if balance is insufficient
-    const { data: customerWallet, error: walletQueryError } = await admin
+    let { data: customerWallet, error: walletQueryError } = await admin
       .from("wallets")
       .select("balance_minor,currency")
       .eq("user_id", user.id)
@@ -343,8 +344,29 @@ export async function POST(request: Request) {
 
     if (walletQueryError) throw walletQueryError;
 
-    const walletBalanceGhs = Number(customerWallet?.balance_minor ?? 0) / 100;
+    let walletBalanceGhs = Number(customerWallet?.balance_minor ?? 0) / 100;
     const orderTotalGhs = Number(subtotal);
+
+    // If balance is short, attempt self-heal of pending deposits before failing
+    if (walletBalanceGhs < orderTotalGhs) {
+      try {
+        const healResult = await settlePendingDeposits(user.id);
+        if (healResult.creditedCount > 0) {
+          // Re-fetch wallet balance after successful credit
+          const { data: updatedWallet } = await admin
+            .from("wallets")
+            .select("balance_minor,currency")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (updatedWallet) {
+            customerWallet = updatedWallet;
+            walletBalanceGhs = Number(updatedWallet.balance_minor ?? 0) / 100;
+          }
+        }
+      } catch (healErr) {
+        // Non-blocking; continue to check balance
+      }
+    }
 
     if (walletBalanceGhs < orderTotalGhs) {
       const shortfallGhs = Math.max(0, orderTotalGhs - walletBalanceGhs);

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../../../lib/supabase/server";
 import { verifyPaystack } from "../../../../../lib/payments/paystack";
+import { recordDepositCheck } from "../../../../../lib/wallet/settle-pending";
+import { formatError } from "../../../../../lib/errors/format-error";
 
 export async function POST(request: NextRequest) {
   const expected = process.env.CRON_SECRET;
@@ -73,13 +75,18 @@ export async function POST(request: NextRequest) {
         },
       };
 
-      await admin
-        .from("wallet_deposit_payments")
-        .update({
-          provider_response: updatedPResp,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", dep.id);
+      await recordDepositCheck({
+        depositId: dep.id,
+        reference: dep.reference,
+        status: isDryRun ? "RECONCILE_DRY_RUN_CHECK" : "RECONCILE_JOB_CHECK",
+        paystackStatus,
+        amountMinor: BigInt(dep.amount_minor),
+        currency: String(dep.currency),
+        paidAt: typeof tx.paid_at === "string" ? tx.paid_at : null,
+        gatewayResponse: typeof tx.gateway_response === "string" ? tx.gateway_response : null,
+        rawResponse: tx,
+        checkedBy: null,
+      });
 
       if (
         tx.status === "success" &&
@@ -105,7 +112,27 @@ export async function POST(request: NextRequest) {
             p_amount_minor: String(dep.amount_minor),
             p_currency: "GHS",
           });
-          if (creditError) throw creditError;
+          if (creditError) {
+            if (creditError.message?.includes("DEPOSIT_RECONCILED")) {
+              await recordDepositCheck({
+                depositId: dep.id,
+                reference: dep.reference,
+                status: "SKIPPED_RECONCILED",
+                gatewayResponse: "credit_wallet_deposit refused reconciled deposit in cron reconcile",
+                rawResponse: { error: creditError.message },
+              });
+              results.push({
+                id: dep.id,
+                reference: dep.reference,
+                user_id: dep.user_id,
+                our_status: dep.status,
+                paystack_status: paystackStatus,
+                action_taken: "SKIPPED_ALREADY_RECONCILED",
+              });
+              continue;
+            }
+            throw creditError;
+          }
 
           results.push({
             id: dep.id,
@@ -130,13 +157,21 @@ export async function POST(request: NextRequest) {
       // Small pacing delay
       await new Promise((resolve) => setTimeout(resolve, 200));
     } catch (err) {
+      const formatted = formatError(err);
       results.push({
         id: dep.id,
         reference: dep.reference,
         user_id: dep.user_id,
         our_status: dep.status,
         paystack_status: null,
-        action_taken: `ERROR: ${err instanceof Error ? err.message : String(err)}`,
+        action_taken: `ERROR: ${formatted}`,
+      });
+      await recordDepositCheck({
+        depositId: dep.id,
+        reference: dep.reference,
+        status: "RECONCILE_VERIFY_ERROR",
+        gatewayResponse: formatted,
+        rawResponse: { error: formatted },
       });
     }
   }

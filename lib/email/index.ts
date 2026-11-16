@@ -1,4 +1,5 @@
 import "server-only";
+import { getCanonicalSiteOrigin } from "../network/origin";
 
 export type SendEmailParams = {
   to: string;
@@ -180,13 +181,14 @@ export function renderWalletCreditEmail(params: {
   const formattedAmount = amountGhs.toFixed(2);
   const subject = `Account Credit: GHS ${formattedAmount} added to your wallet`;
 
+  const siteOrigin = getCanonicalSiteOrigin();
   const text = `Hello,
 
 GHS ${formattedAmount} has been added to your VANTA wallet.
 
 You can use your wallet balance toward any order on VANTA.
 
-View your wallet: ${process.env.NEXT_PUBLIC_APP_URL || "https://vantasocials.shop"}/account/wallet
+View your wallet: ${siteOrigin}/account/wallet
 
 Thank you,
 The VANTA Team`;
@@ -218,7 +220,7 @@ The VANTA Team`;
     </div>
     <p>These funds are immediately available to use on any order.</p>
     <div style="text-align: center; margin-top: 24px;">
-      <a href="${process.env.NEXT_PUBLIC_APP_URL || "https://vantasocials.shop"}/account/wallet" class="btn">View Wallet Balance</a>
+      <a href="${siteOrigin}/account/wallet" class="btn">View Wallet Balance</a>
     </div>
   </div>
 </body>
@@ -240,13 +242,14 @@ export function renderOrderRefundEmail(params: {
   const formattedAmount = amountGhs.toFixed(2);
   const subject = `Order #${publicOrderId} Refunded to Wallet`;
 
+  const siteOrigin = getCanonicalSiteOrigin();
   const text = `Hello,
 
 Your order #${publicOrderId} (${serviceName}) couldn't be delivered.
 
 GHS ${formattedAmount} has been returned to your VANTA wallet. You can use your wallet balance toward any future order or top up at any time.
 
-View your wallet and orders: ${process.env.NEXT_PUBLIC_APP_URL || "https://vantasocials.shop"}/account/wallet
+View your wallet and orders: ${siteOrigin}/account/wallet
 
 Thank you,
 The VANTA Team`;
@@ -278,7 +281,7 @@ The VANTA Team`;
     </div>
     <p>The funds are immediately available in your VANTA wallet to use on any order.</p>
     <div style="text-align: center; margin-top: 24px;">
-      <a href="${process.env.NEXT_PUBLIC_APP_URL || "https://vantasocials.shop"}/account/wallet" class="btn">View Wallet Balance</a>
+      <a href="${siteOrigin}/account/wallet" class="btn">View Wallet Balance</a>
     </div>
   </div>
 </body>

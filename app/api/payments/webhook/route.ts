@@ -5,6 +5,8 @@ import { verifyAndSettlePaystack } from "../../../../lib/payments/settle";
 import { verifyPaystack } from "../../../../lib/payments/paystack";
 import { captureServerEvent } from "../../../../lib/posthog/server";
 import { flushPostHogLogs, logPostHogError } from "../../../../lib/posthog/logs";
+import { recordDepositCheck } from "../../../../lib/wallet/settle-pending";
+import { formatError } from "../../../../lib/errors/format-error";
 
 export async function POST(request: Request) {
   const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -72,9 +74,33 @@ export async function POST(request: Request) {
     if (deposit) {
       const pResp = (deposit.provider_response && typeof deposit.provider_response === "object" ? deposit.provider_response : {}) as Record<string, any>;
       // Skip if already reconciled
-      if (!pResp.reconciled && deposit.is_reconciled !== true) {
+      if (pResp.reconciled === true || deposit.is_reconciled === true) {
+        await recordDepositCheck({
+          depositId: deposit.id,
+          reference,
+          status: "SKIPPED_RECONCILED",
+          gatewayResponse: "Webhook received for reconciled deposit; skipping credit.",
+          rawResponse: { eventId, reconciled: true },
+        });
+      } else {
         const verified = await verifyPaystack(reference);
         const tx = verified.data || {};
+        const paystackStatus = String(tx.status || "");
+        const gatewayResponse = String(tx.gateway_response || "");
+        const paidAt = typeof tx.paid_at === "string" ? tx.paid_at : null;
+
+        await recordDepositCheck({
+          depositId: deposit.id,
+          reference,
+          status: paystackStatus === "success" ? "WEBHOOK_VERIFIED_SUCCESS" : "WEBHOOK_VERIFIED_NON_SUCCESS",
+          paystackStatus,
+          amountMinor: BigInt(deposit.amount_minor),
+          currency: String(deposit.currency),
+          paidAt,
+          gatewayResponse,
+          rawResponse: tx,
+        });
+
         if (tx.status === "success" && String(tx.reference || "") === reference && String(tx.amount || "") === String(deposit.amount_minor) && String(tx.currency || "") === "GHS") {
           const { error: creditError } = await admin.rpc("credit_wallet_deposit", {
             p_deposit_id: deposit.id,
@@ -83,8 +109,21 @@ export async function POST(request: Request) {
             p_amount_minor: String(deposit.amount_minor),
             p_currency: "GHS",
           });
-          if (creditError) throw creditError;
-          if (deposit.status !== "PAID") {
+          if (creditError) {
+            // If the deposit was already reconciled, acknowledge with 200 without retrying
+            if (creditError.message?.includes("DEPOSIT_RECONCILED")) {
+              await recordDepositCheck({
+                depositId: deposit.id,
+                reference,
+                status: "SKIPPED_RECONCILED",
+                gatewayResponse: "credit_wallet_deposit refused reconciled deposit in webhook",
+                rawResponse: { eventId, error: creditError.message },
+              });
+            } else {
+              throw creditError;
+            }
+          }
+          if (deposit.status !== "PAID" && !creditError) {
             await captureServerEvent(deposit.user_id, "wallet_deposit_completed", {
               amount_minor: deposit.amount_minor,
               currency: "GHS",
@@ -111,8 +150,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    const details = error instanceof Error ? error.message : "unknown";
-    console.error("Paystack webhook processing failed", details);
+    const details = formatError(error);
+    console.error("Paystack webhook processing failed:", details);
     logPostHogError("payment webhook processing failed", {
       operation: "payment_webhook",
       outcome: "failed",

@@ -22,8 +22,8 @@ export async function POST(
   const note = (body?.note || "").trim();
   const linkedTxId = (body?.linked_transaction_id || "").trim();
 
-  if (!note) {
-    return NextResponse.json({ error: "A note explaining the reconciliation is required." }, { status: 400 });
+  if (!note || note.length < 10) {
+    return NextResponse.json({ error: "A descriptive note of at least 10 characters explaining the reconciliation is required." }, { status: 400 });
   }
 
   // 1. Fetch deposit

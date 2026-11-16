@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
 import { createSupabaseAdminClient } from "../lib/supabase/server";
+import { getCanonicalSiteOrigin } from "../lib/network/origin";
 
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://www.vantasocials.shop";
+const BASE_URL = getCanonicalSiteOrigin();
 
 export const revalidate = 3600; // regenerate every hour
 

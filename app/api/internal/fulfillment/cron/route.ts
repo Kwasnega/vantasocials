@@ -26,6 +26,14 @@ export async function POST(request: NextRequest) {
   try { await recoverStuckSubmittingOrders(); } catch { /* best-effort non-blocking recovery */ }
   // Auto-expire customer target fix tokens older than 7 days
   try { await expireOldTargetFixTokens(); } catch { /* best-effort non-blocking recovery */ }
+  // Reconcile deposits check (dry-run mode by default, non-blocking)
+  try {
+    const origin = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    await fetch(`${origin}/api/internal/deposits/reconcile?dry_run=true`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${expected}` },
+    }).catch(() => {});
+  } catch { /* best-effort non-blocking */ }
   // Operational event retention is best-effort and must never block fulfillment.
   try { await admin.rpc("cleanup_provider_order_events", { p_before: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString() }); } catch { /* retention is non-blocking */ }
   const { data: orders, error } = await admin

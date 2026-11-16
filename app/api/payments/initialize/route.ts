@@ -8,6 +8,7 @@ import { validateConfiguredOrderTarget } from "../../../../lib/targets/contracts
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../lib/security/rate-limit";
 import { captureServerEvent } from "../../../../lib/posthog/server";
 import { flushPostHogLogs, logPostHogInfo } from "../../../../lib/posthog/logs";
+import { getCanonicalSiteOrigin } from "../../../../lib/network/origin";
 
 type PaymentProvider = "paystack" | "bundleup_gateway";
 const PAYSTACK_CHECKOUT_HOSTS = ["checkout.paystack.com"];
@@ -188,7 +189,7 @@ export async function POST(request: Request) {
         throw reserveError;
       }
     }
-    const origin = process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
+    const origin = getCanonicalSiteOrigin();
     const initialized = await initializePaystack({ email: user.email || `${user.id}@invalid.vanta.local`, amount: String(order.total), currency: order.currency, reference, callbackUrl: `${origin}/payments/callback`, orderId: order.id });
     const data = initialized.data || {};
     if (typeof data.authorization_url !== "string" || typeof data.reference !== "string") throw new Error("Paystack returned an invalid authorization response.");

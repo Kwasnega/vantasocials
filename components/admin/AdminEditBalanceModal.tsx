@@ -36,8 +36,8 @@ export function AdminEditBalanceModal({
       setError("Please enter a valid non-negative balance.");
       return;
     }
-    if (!reason.trim()) {
-      setError("A note explaining the balance adjustment is required.");
+    if (!reason.trim() || reason.trim().length < 10) {
+      setError("A descriptive note of at least 10 characters explaining the balance adjustment is required.");
       return;
     }
 

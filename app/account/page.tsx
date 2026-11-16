@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "../../lib/auth/require-user";
 import { formatSpendByCurrency, getAccountOverviewStats } from "../../lib/account/overview";
+import { settlePendingDeposits } from "../../lib/wallet/settle-pending";
 
 function formatStatus(status: string) {
   return status
@@ -12,6 +13,11 @@ function formatStatus(status: string) {
 
 export default async function AccountPage() {
   const { user, db } = await requireUser("/account");
+  try {
+    await settlePendingDeposits(user.id);
+  } catch {
+    // Non-blocking
+  }
   const [walletResult, overview, recentOrdersResult, awaitingPaymentResult] = await Promise.all([
     db.from("wallets").select("balance_minor,currency").eq("user_id", user.id).maybeSingle(),
     getAccountOverviewStats(db, user.id),

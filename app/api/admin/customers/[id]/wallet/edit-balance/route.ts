@@ -33,8 +33,8 @@ export async function POST(
       return NextResponse.json({ error: "Target balance must be a non-negative number." }, { status: 400 });
     }
 
-    if (!reason) {
-      return NextResponse.json({ error: "A note explaining the balance edit is required." }, { status: 400 });
+    if (!reason || reason.length < 10) {
+      return NextResponse.json({ error: "A descriptive note of at least 10 characters explaining the balance edit is required." }, { status: 400 });
     }
 
     const db = createSupabaseAdminClient();

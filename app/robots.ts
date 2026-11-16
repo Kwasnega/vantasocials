@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
+import { getCanonicalSiteOrigin } from "../lib/network/origin";
 
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://www.vantasocials.shop";
+const BASE_URL = getCanonicalSiteOrigin();
 
 export default function robots(): MetadataRoute.Robots {
   return {

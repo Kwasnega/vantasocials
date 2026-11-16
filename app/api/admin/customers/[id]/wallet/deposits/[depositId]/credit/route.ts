@@ -97,6 +97,12 @@ export async function POST(
   });
 
   if (creditError) {
+    if (creditError.message?.includes("DEPOSIT_RECONCILED")) {
+      return NextResponse.json(
+        { error: "Deposit is marked as reconciled. Crediting refused by database protection." },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
       { error: `Database credit RPC failed: ${creditError.message}` },
       { status: 500 }

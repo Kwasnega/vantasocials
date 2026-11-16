@@ -4,6 +4,7 @@ import { amountToMinorUnits, initializeWalletPaystack, PaystackApiError } from "
 import { clientIp, consumeRateLimits, limiterUnavailable, rateLimited, rulesFor } from "../../../../../lib/security/rate-limit";
 import { captureServerEvent } from "../../../../../lib/posthog/server";
 import { getMinDepositSetting, MAX_DEPOSIT_MINOR, MAX_DEPOSIT_GHS } from "../../../../../lib/settings/deposit-settings";
+import { getCanonicalSiteOrigin } from "../../../../../lib/network/origin";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
     const { data: deposit, error: depositError } = await admin.from("wallet_deposit_payments").insert({ user_id: user.id, wallet_id: walletId, idempotency_key: idempotencyKey, reference, amount_minor: amountMinor.toString(), currency: "GHS", status: "INITIALIZING", provider: "paystack" }).select("id,reference,amount_minor").single();
     if (depositError?.code === "23505") return NextResponse.json({ error: "Deposit initialization is already in progress. Retry with the same idempotency key.", idempotency_key: idempotencyKey }, { status: 409 });
     if (depositError) throw depositError;
-    const origin = process.env.NODE_ENV === "production" ? process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin : new URL(request.url).origin;
+    const origin = getCanonicalSiteOrigin();
     const returnParam = returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : "";
     const callbackUrl = `${origin}/account/wallet?deposit_reference=${encodeURIComponent(reference)}${returnParam}`;
     try {

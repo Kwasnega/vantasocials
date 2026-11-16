@@ -45,8 +45,8 @@ export function ReconcileDepositModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!note.trim()) {
-      setError("Please provide an explanatory note.");
+    if (!note.trim() || note.trim().length < 10) {
+      setError("Please provide an explanatory note (at least 10 characters).");
       return;
     }
 
